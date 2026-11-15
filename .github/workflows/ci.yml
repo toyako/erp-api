@@ -21,8 +21,16 @@ jobs:
           cache: pnpm
 
       # 契约仓库与本仓库并列存放（package.json 使用 file:../erp-contracts）
+      # erp-contracts 为私有仓库时需配置 secrets.CONTRACTS_TOKEN；公开则匿名 clone
       - name: Clone contracts
-        run: git clone --depth 1 https://github.com/toyako/erp-contracts.git ../erp-contracts
+        env:
+          CONTRACTS_TOKEN: ${{ secrets.CONTRACTS_TOKEN }}
+        run: |
+          if [ -n "$CONTRACTS_TOKEN" ]; then
+            git clone --depth 1 "https://x-access-token:${CONTRACTS_TOKEN}@github.com/toyako/erp-contracts.git" ../erp-contracts
+          else
+            git clone --depth 1 https://github.com/toyako/erp-contracts.git ../erp-contracts
+          fi
 
       - run: pnpm install
 
