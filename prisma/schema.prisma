@@ -127,3 +127,46 @@ model AuditEvent {
   @@index([tenantId, createdAt])
   @@map("audit_events")
 }
+
+/// 供应商档案（采购上下文）
+model Supplier {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  code      String   @unique
+  name      String
+  contact   String?
+  phone     String?
+  rating    Int      @default(3)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@map("suppliers")
+}
+
+/// 采购订单：draft -> submitted -> received / cancelled
+model PurchaseOrder {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  orderNo    String   @unique @map("order_no")
+  supplierId String   @map("supplier_id")
+  status     String
+  amount     Int
+  currency   String   @db.Char(3)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id         String @id @default(uuid())
+  orderId    String @map("order_id")
+  skuId      String @map("sku_id")
+  quantity   Int
+  unitAmount Int    @map("unit_amount")
+  currency   String @db.Char(3)
+
+  @@index([orderId])
+  @@map("purchase_order_lines")
+}

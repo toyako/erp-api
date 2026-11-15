@@ -1,12 +1,16 @@
+import { randomUUID } from 'node:crypto';
 import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
 import {
   CreateOrderRequestSchema,
+  CreateSupplierRequestSchema,
   LoginRequestSchema,
   type CreateOrderRequest,
+  type CreateSupplierRequest,
   type LoginRequest,
+  type Supplier,
 } from '@erp/contracts';
 import { IamService } from '../../application/iam.service';
-import { SalesService } from '../../application/sales.service';
+import { SalesService, TENANT_ID } from '../../application/sales.service';
 import { DatabasePort } from '../../domain/ports';
 import { ZodValidationPipe } from './zod-validation.pipe';
 
@@ -38,6 +42,29 @@ export class ErpController {
   @Get('users/me')
   me(@Headers('authorization') authorization?: string) {
     return this.iam.currentUser(authorization);
+  }
+
+  @Get('purchase/suppliers')
+  async suppliers() {
+    return page(await this.db.listSuppliers());
+  }
+
+  @Post('purchase/suppliers')
+  async createSupplier(
+    @Body(new ZodValidationPipe(CreateSupplierRequestSchema)) body: CreateSupplierRequest,
+  ) {
+    const supplier: Supplier = {
+      id: randomUUID(),
+      tenantId: TENANT_ID,
+      code: body.code,
+      name: body.name,
+      ...(body.contact ? { contact: body.contact } : {}),
+      ...(body.phone ? { phone: body.phone } : {}),
+      rating: body.rating,
+      enabled: true,
+    };
+    await this.db.saveSupplier(supplier);
+    return supplier;
   }
 
   @Get('iam/principals')

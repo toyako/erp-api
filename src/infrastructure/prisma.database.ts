@@ -7,6 +7,7 @@ import type {
   Role,
   SalesOrder,
   Sku,
+  Supplier,
 } from '@erp/contracts';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { DatabasePort } from '../domain/ports';
@@ -175,6 +176,43 @@ export class PrismaDatabase extends DatabasePort {
         unitAmount: line.unitPrice.amount,
         currency: line.unitPrice.currency,
       })),
+    });
+  }
+
+  async listSuppliers() {
+    const rows = await this.client.supplier.findMany({ orderBy: { createdAt: 'asc' } });
+    return rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenantId,
+      code: row.code,
+      name: row.name,
+      ...(row.contact ? { contact: row.contact } : {}),
+      ...(row.phone ? { phone: row.phone } : {}),
+      rating: row.rating,
+      enabled: row.enabled,
+    }));
+  }
+
+  async saveSupplier(supplier: Supplier) {
+    await this.client.supplier.upsert({
+      where: { id: supplier.id },
+      create: {
+        id: supplier.id,
+        tenantId: supplier.tenantId,
+        code: supplier.code,
+        name: supplier.name,
+        contact: supplier.contact ?? null,
+        phone: supplier.phone ?? null,
+        rating: supplier.rating,
+        enabled: supplier.enabled,
+      },
+      update: {
+        name: supplier.name,
+        contact: supplier.contact ?? null,
+        phone: supplier.phone ?? null,
+        rating: supplier.rating,
+        enabled: supplier.enabled,
+      },
     });
   }
 

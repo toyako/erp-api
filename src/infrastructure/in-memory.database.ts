@@ -5,6 +5,7 @@ import type {
   Principal,
   SalesOrder,
   Sku,
+  Supplier,
 } from '@erp/contracts';
 import { DatabasePort } from '../domain/ports';
 import { TENANT_ID } from '../application/sales.service';
@@ -16,6 +17,7 @@ interface State {
   prices: PriceList[];
   lots: InventoryLot[];
   orders: SalesOrder[];
+  suppliers: Supplier[];
 }
 
 const skuA = '00000000-0000-4000-8000-000000000101';
@@ -46,6 +48,7 @@ function seed(): State {
     prices,
     lots,
     orders: [],
+    suppliers: [],
   };
 }
 
@@ -91,6 +94,17 @@ export class InMemoryDatabase extends DatabasePort {
     const copy = { ...order };
     if (i >= 0) this.state.orders[i] = copy;
     else this.state.orders.push(copy);
+  }
+
+  async listSuppliers() {
+    return this.state.suppliers.map((s) => ({ ...s }));
+  }
+
+  async saveSupplier(supplier: Supplier) {
+    const index = this.state.suppliers.findIndex((s) => s.id === supplier.id);
+    const copy = { ...supplier };
+    if (index >= 0) this.state.suppliers[index] = copy;
+    else this.state.suppliers.push(copy);
   }
 
   async listOrders() { return this.state.orders.map((o) => ({ ...o })); }

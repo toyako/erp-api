@@ -4,6 +4,7 @@ import type {
   Principal,
   SalesOrder,
   Sku,
+  Supplier,
 } from '@erp/contracts';
 
 export type DomainErrorCode =
@@ -40,6 +41,8 @@ export abstract class DatabasePort {
   abstract saveOrder(order: SalesOrder): Promise<void>;
   abstract listOrders(): Promise<SalesOrder[]>;
   abstract findOrder(id: string): Promise<SalesOrder | null>;
+  abstract listSuppliers(): Promise<Supplier[]>;
+  abstract saveSupplier(supplier: Supplier): Promise<void>;
   /** 订单确认与库存占用必须在同一事务边界；回调收到事务内的仓储句柄 */
   abstract runInTransaction<T>(fn: (tx: DatabasePort) => Promise<T>): Promise<T>;
 }

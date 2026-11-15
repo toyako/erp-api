@@ -119,7 +119,18 @@ async function main() {
     });
   }
 
-  console.log('seed done: 1 tenant / 3 principals / 1 SPU / 2 SKU / 2 lots');
+  for (const supplier of [
+    { code: 'SUP-001', name: '杭州云启科技', contact: '王工', phone: '0571-88886666', rating: 5 },
+    { code: 'SUP-002', name: '深圳智联电子', contact: '李经理', phone: '0755-88887777', rating: 4 },
+  ]) {
+    await prisma.supplier.upsert({
+      where: { code: supplier.code },
+      update: {},
+      create: { tenantId: TENANT, ...supplier },
+    });
+  }
+
+  console.log('seed done: 1 tenant / 3 principals / 1 SPU / 2 SKU / 2 lots / 2 suppliers');
 }
 
 main()
