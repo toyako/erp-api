@@ -1,5 +1,7 @@
 # @erp/api
 
+[![CI](https://github.com/toyako/erp-api/actions/workflows/ci.yml/badge.svg)](https://github.com/toyako/erp-api/actions/workflows/ci.yml)
+
 > **erp-platform 四仓库之一**：[erp-contracts](https://github.com/toyako/erp-contracts) · [erp-api](https://github.com/toyako/erp-api) · [erp-admin](https://github.com/toyako/erp-admin) · [erp-desktop](https://github.com/toyako/erp-desktop)
 >
 > 本地开发需四仓库并列存放；`erp-api` 与 `erp-admin` 通过 `file:../erp-contracts` 引用契约。
