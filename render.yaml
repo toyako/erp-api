@@ -4,7 +4,8 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: pnpm install && pnpm exec prisma generate && pnpm build
+    # NODE_ENV=production 会让 pnpm 跳过 devDependencies，而 prisma/typescript 都在 devDeps
+    buildCommand: pnpm install --prod=false && pnpm exec prisma generate && pnpm build
     startCommand: sh -c "pnpm exec prisma migrate deploy && node dist/main.js"
     healthCheckPath: /api/health
     envVars:
