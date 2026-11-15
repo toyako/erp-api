@@ -164,6 +164,7 @@ export class PrismaDatabase extends DatabasePort {
       },
       update: { status: order.status, amount: order.total.amount },
     });
+    // schema 未定义反向关系字段，行项单独写入（事务超时已放宽到 20s）
     await this.client.orderLine.deleteMany({ where: { orderId: order.id } });
     await this.client.orderLine.createMany({
       data: order.lines.map((line) => ({
@@ -190,7 +191,10 @@ export class PrismaDatabase extends DatabasePort {
   /** 用交互式事务保证「占库存 + 建订单」原子性；回调拿到事务内句柄 */
   async runInTransaction<T>(fn: (tx: DatabasePort) => Promise<T>): Promise<T> {
     if (!('$transaction' in this.client)) return fn(this);
-    return this.client.$transaction(async (tx) => fn(new PrismaDatabase(tx)));
+    return this.client.$transaction(async (tx) => fn(new PrismaDatabase(tx)), {
+      maxWait: 10_000,
+      timeout: 20_000,
+    });
   }
 
   private async hydrate(row: {
