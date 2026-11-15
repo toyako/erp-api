@@ -1,0 +1,129 @@
+// 数据模型定义（ADR-0007）。P1 运行在 InMemory 适配器上，无需数据库；
+// P2 接入时执行 `pnpm exec prisma generate` + `prisma migrate dev --name init`。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("tenants")
+}
+
+model Principal {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  username    String   @unique
+  displayName String   @map("display_name")
+  roles       String[]
+  passwordHash String  @map("password_hash")
+  createdAt   DateTime @default(now()) @map("created_at")
+  @@map("principals")
+}
+
+model Spu {
+  id           String  @id @default(uuid())
+  tenantId     String  @map("tenant_id")
+  name         String
+  categoryCode String  @map("category_code")
+  description  String?
+  enabled      Boolean @default(true)
+  @@map("spus")
+}
+
+model Sku {
+  id      String  @id @default(uuid())
+  spuId   String  @map("spu_id")
+  code    String  @unique
+  spec    String
+  unit    String
+  enabled Boolean @default(true)
+  @@map("skus")
+}
+
+model PriceList {
+  id            String    @id @default(uuid())
+  skuId         String    @map("sku_id")
+  channelCode   String    @map("channel_code")
+  amount        Int
+  currency      String    @db.Char(3)
+  effectiveFrom DateTime  @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  @@index([skuId, channelCode])
+  @@map("price_lists")
+}
+
+model InventoryLot {
+  id           String @id @default(uuid())
+  tenantId     String @map("tenant_id")
+  skuId        String @map("sku_id")
+  batchCode    String @map("batch_code")
+  availableQty Int    @map("available_qty")
+  reservedQty  Int    @map("reserved_qty")
+  totalQty     Int    @map("total_qty")
+  @@index([skuId])
+  @@map("inventory_lots")
+}
+
+model StockMovement {
+  id          String   @id @default(uuid())
+  lotId       String   @map("lot_id")
+  type        String
+  quantity    Int
+  referenceId String?  @map("reference_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  @@map("stock_movements")
+}
+
+model SalesOrder {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  orderNo   String   @unique @map("order_no")
+  status    String
+  amount    Int
+  currency  String   @db.Char(3)
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([tenantId, status])
+  @@map("sales_orders")
+}
+
+model OrderLine {
+  id        String @id @default(uuid())
+  orderId   String @map("order_id")
+  skuId     String @map("sku_id")
+  quantity  Int
+  unitAmount Int   @map("unit_amount")
+  currency  String @db.Char(3)
+  @@index([orderId])
+  @@map("order_lines")
+}
+
+model PaymentRecord {
+  id        String   @id @default(uuid())
+  orderId   String   @map("order_id")
+  amount    Int
+  currency  String   @db.Char(3)
+  reference String
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("payment_records")
+}
+
+model AuditEvent {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  actorId    String   @map("actor_id")
+  action     String
+  targetType String   @map("target_type")
+  targetId   String   @map("target_id")
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  @@index([tenantId, createdAt])
+  @@map("audit_events")
+}
