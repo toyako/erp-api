@@ -1,0 +1,10 @@
+name = "erp-api-keepalive"
+main = "src/index.js"
+compatibility_date = "2026-11-14"
+
+# 每 5 分钟 ping 一次 Render 健康检查，避免免费实例休眠
+[triggers]
+crons = ["*/5 * * * *"]
+
+[observability]
+enabled = true
