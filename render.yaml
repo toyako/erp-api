@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: erp-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: pnpm install && pnpm exec prisma generate && pnpm build
+    startCommand: sh -c "pnpm exec prisma migrate deploy && node dist/main.js"
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # 使用 Prisma 适配器，数据落到 Supabase PostgreSQL
+      - key: ERP_DB_ADAPTER
+        value: prisma
+      # 在 Render 面板填入 Supabase 直连串（端口 5432，非 pgbouncer）
+      - key: DATABASE_URL
+        sync: false
+      # 首次部署自动生成，禁止在仓库中出现真实值
+      - key: JWT_SECRET
+        generateValue: true
