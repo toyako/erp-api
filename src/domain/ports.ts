@@ -2,6 +2,7 @@ import type {
   InventoryLot,
   PriceList,
   Principal,
+  PurchaseOrder,
   SalesOrder,
   Sku,
   Supplier,
@@ -34,6 +35,7 @@ export abstract class DatabasePort {
   abstract listPrincipals(): Promise<Principal[]>;
   abstract listSkus(): Promise<Sku[]>;
   abstract findSku(id: string): Promise<Sku | null>;
+  abstract saveSku(sku: Sku): Promise<void>;
   abstract findPriceBySku(skuId: string): Promise<PriceList | null>;
   abstract listLots(): Promise<InventoryLot[]>;
   abstract findLotBySku(skuId: string): Promise<InventoryLot | null>;
@@ -43,6 +45,9 @@ export abstract class DatabasePort {
   abstract findOrder(id: string): Promise<SalesOrder | null>;
   abstract listSuppliers(): Promise<Supplier[]>;
   abstract saveSupplier(supplier: Supplier): Promise<void>;
+  abstract listPurchaseOrders(): Promise<PurchaseOrder[]>;
+  abstract findPurchaseOrder(id: string): Promise<PurchaseOrder | null>;
+  abstract savePurchaseOrder(order: PurchaseOrder): Promise<void>;
   /** 订单确认与库存占用必须在同一事务边界；回调收到事务内的仓储句柄 */
   abstract runInTransaction<T>(fn: (tx: DatabasePort) => Promise<T>): Promise<T>;
 }

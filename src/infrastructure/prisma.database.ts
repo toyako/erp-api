@@ -4,6 +4,8 @@ import type {
   OrderLine,
   PriceList,
   Principal,
+  PurchaseOrder,
+  PurchaseOrderLine,
   Role,
   SalesOrder,
   Sku,
@@ -122,6 +124,21 @@ export class PrismaDatabase extends DatabasePort {
     return row ? toSku(row) : null;
   }
 
+  async saveSku(sku: Sku) {
+    await this.client.sku.upsert({
+      where: { id: sku.id },
+      create: {
+        id: sku.id,
+        spuId: sku.spuId,
+        code: sku.code,
+        spec: sku.spec,
+        unit: sku.unit,
+        enabled: sku.enabled,
+      },
+      update: { spec: sku.spec, unit: sku.unit, enabled: sku.enabled },
+    });
+  }
+
   async findPriceBySku(skuId: string) {
     const row = await this.client.priceList.findFirst({
       where: { skuId, effectiveTo: null },
@@ -141,9 +158,18 @@ export class PrismaDatabase extends DatabasePort {
   }
 
   async saveLot(lot: InventoryLot) {
-    await this.client.inventoryLot.update({
+    await this.client.inventoryLot.upsert({
       where: { id: lot.id },
-      data: {
+      create: {
+        id: lot.id,
+        tenantId: lot.tenantId,
+        skuId: lot.skuId,
+        batchCode: lot.batchCode,
+        availableQty: lot.availableQty,
+        reservedQty: lot.reservedQty,
+        totalQty: lot.totalQty,
+      },
+      update: {
         availableQty: lot.availableQty,
         reservedQty: lot.reservedQty,
         totalQty: lot.totalQty,
@@ -221,6 +247,45 @@ export class PrismaDatabase extends DatabasePort {
     return Promise.all(rows.map((row) => this.hydrate(row)));
   }
 
+  async listPurchaseOrders() {
+    const rows = await this.client.purchaseOrder.findMany({ orderBy: { createdAt: 'desc' } });
+    return Promise.all(rows.map((row) => this.hydratePurchaseOrder(row)));
+  }
+
+  async findPurchaseOrder(id: string) {
+    const row = await this.client.purchaseOrder.findUnique({ where: { id } });
+    return row ? this.hydratePurchaseOrder(row) : null;
+  }
+
+  async savePurchaseOrder(order: PurchaseOrder) {
+    await this.client.purchaseOrder.upsert({
+      where: { id: order.id },
+      create: {
+        id: order.id,
+        tenantId: order.tenantId,
+        orderNo: order.orderNo,
+        supplierId: order.supplierId,
+        status: order.status,
+        amount: order.total.amount,
+        currency: order.total.currency,
+        createdAt: new Date(order.createdAt),
+      },
+      update: { status: order.status, amount: order.total.amount },
+    });
+    // schema 未定义反向关系字段，行项单独写入（事务超时已放宽到 20s）
+    await this.client.purchaseOrderLine.deleteMany({ where: { orderId: order.id } });
+    await this.client.purchaseOrderLine.createMany({
+      data: order.lines.map((line) => ({
+        id: line.id,
+        orderId: order.id,
+        skuId: line.skuId,
+        quantity: line.quantity,
+        unitAmount: line.unitPrice.amount,
+        currency: line.unitPrice.currency,
+      })),
+    });
+  }
+
   async findOrder(id: string) {
     const row = await this.client.salesOrder.findUnique({ where: { id } });
     return row ? this.hydrate(row) : null;
@@ -252,6 +317,36 @@ export class PrismaDatabase extends DatabasePort {
       status: row.status as SalesOrder['status'],
       lines: lines.map(
         (line): OrderLine => ({
+          id: line.id,
+          skuId: line.skuId,
+          quantity: line.quantity,
+          unitPrice: { amount: line.unitAmount, currency: line.currency },
+        }),
+      ),
+      total: { amount: row.amount, currency: row.currency },
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  private async hydratePurchaseOrder(row: {
+    id: string;
+    tenantId: string;
+    orderNo: string;
+    supplierId: string;
+    status: string;
+    amount: number;
+    currency: string;
+    createdAt: Date;
+  }): Promise<PurchaseOrder> {
+    const lines = await this.client.purchaseOrderLine.findMany({ where: { orderId: row.id } });
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      orderNo: row.orderNo,
+      supplierId: row.supplierId,
+      status: row.status as PurchaseOrder['status'],
+      lines: lines.map(
+        (line): PurchaseOrderLine => ({
           id: line.id,
           skuId: line.skuId,
           quantity: line.quantity,

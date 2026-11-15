@@ -57,7 +57,7 @@ export class SalesService {
         id: randomUUID(),
         tenantId: TENANT_ID,
         orderNo: `ERP-${Date.now().toString(36).toUpperCase()}`,
-        status: 'confirmed',
+        status: 'draft',
         lines,
         total,
         createdAt: new Date().toISOString(),
@@ -84,6 +84,24 @@ export class SalesService {
     const order = await this.requireOrder(id);
     assertTransition(order.status, 'fulfilled');
     order.status = 'fulfilled';
+    await this.db.saveOrder(order);
+    return order;
+  }
+
+  /** 草稿单确认：draft -> confirmed，库存已在建单时占用，此处只改状态 */
+  async confirmOrder(id: string): Promise<SalesOrder> {
+    const order = await this.requireOrder(id);
+    assertTransition(order.status, 'confirmed');
+    order.status = 'confirmed';
+    await this.db.saveOrder(order);
+    return order;
+  }
+
+  /** 取消：仅 draft / confirmed 可取消（ORDER_TRANSITIONS 已定义），paid 不可 */
+  async cancelOrder(id: string): Promise<SalesOrder> {
+    const order = await this.requireOrder(id);
+    assertTransition(order.status, 'cancelled');
+    order.status = 'cancelled';
     await this.db.saveOrder(order);
     return order;
   }

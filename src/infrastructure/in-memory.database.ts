@@ -3,6 +3,7 @@ import type {
   InventoryLot,
   PriceList,
   Principal,
+  PurchaseOrder,
   SalesOrder,
   Sku,
   Supplier,
@@ -18,6 +19,7 @@ interface State {
   lots: InventoryLot[];
   orders: SalesOrder[];
   suppliers: Supplier[];
+  purchaseOrders: PurchaseOrder[];
 }
 
 const skuA = '00000000-0000-4000-8000-000000000101';
@@ -49,6 +51,7 @@ function seed(): State {
     lots,
     orders: [],
     suppliers: [],
+    purchaseOrders: [],
   };
 }
 
@@ -71,6 +74,12 @@ export class InMemoryDatabase extends DatabasePort {
   async findSku(id: string) {
     const found = this.state.skus.find((s) => s.id === id);
     return found ? { ...found } : null;
+  }
+  async saveSku(sku: Sku) {
+    const i = this.state.skus.findIndex((s) => s.id === sku.id);
+    const copy = { ...sku };
+    if (i >= 0) this.state.skus[i] = copy;
+    else this.state.skus.push(copy);
   }
   async findPriceBySku(skuId: string) {
     const found = this.state.prices.find((p) => p.skuId === skuId);
@@ -111,6 +120,19 @@ export class InMemoryDatabase extends DatabasePort {
   async findOrder(id: string) {
     const found = this.state.orders.find((o) => o.id === id);
     return found ? { ...found } : null;
+  }
+
+  async listPurchaseOrders() { return this.state.purchaseOrders.map((o) => ({ ...o })); }
+  async findPurchaseOrder(id: string) {
+    const found = this.state.purchaseOrders.find((o) => o.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async savePurchaseOrder(order: PurchaseOrder) {
+    const i = this.state.purchaseOrders.findIndex((o) => o.id === order.id);
+    const copy = { ...order };
+    if (i >= 0) this.state.purchaseOrders[i] = copy;
+    else this.state.purchaseOrders.push(copy);
   }
 
   /** 失败时回滚到事务前快照，保证「占库存 + 建订单」原子性 */
