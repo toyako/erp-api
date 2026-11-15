@@ -1,4 +1,7 @@
 # 单包仓库：省略 packages 表示只有根包；仅作 pnpm 配置载体
 allowBuilds:
   '@nestjs/core': true
+  '@prisma/client': true
+  '@prisma/engines': true
   esbuild: true
+  prisma: true

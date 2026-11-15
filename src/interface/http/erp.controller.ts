@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
 import {
   CreateOrderRequestSchema,
   LoginRequestSchema,
@@ -33,6 +33,11 @@ export class ErpController {
   @Post('auth/login')
   login(@Body(new ZodValidationPipe(LoginRequestSchema)) body: LoginRequest) {
     return this.iam.login(body);
+  }
+
+  @Get('users/me')
+  me(@Headers('authorization') authorization?: string) {
+    return this.iam.currentUser(authorization);
   }
 
   @Get('iam/principals')

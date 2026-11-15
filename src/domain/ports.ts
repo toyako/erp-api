@@ -10,6 +10,7 @@ export type DomainErrorCode =
   | 'NOT_FOUND'
   | 'INSUFFICIENT_STOCK'
   | 'INVALID_STATE'
+  | 'UNAUTHORIZED'
   | 'CONFLICT'
   | 'FORBIDDEN';
 
@@ -27,6 +28,8 @@ export class DomainError extends Error {
 
 export abstract class DatabasePort {
   abstract findPrincipalByUsername(username: string): Promise<Principal | null>;
+  /** 仅供认证校验，不通过契约对外暴露 */
+  abstract findPasswordHash(username: string): Promise<string | null>;
   abstract listPrincipals(): Promise<Principal[]>;
   abstract listSkus(): Promise<Sku[]>;
   abstract findSku(id: string): Promise<Sku | null>;
@@ -37,8 +40,8 @@ export abstract class DatabasePort {
   abstract saveOrder(order: SalesOrder): Promise<void>;
   abstract listOrders(): Promise<SalesOrder[]>;
   abstract findOrder(id: string): Promise<SalesOrder | null>;
-  /** 订单确认与库存占用必须在同一事务边界；生产适配器用数据库事务实现 */
-  abstract runInTransaction<T>(fn: () => Promise<T>): Promise<T>;
+  /** 订单确认与库存占用必须在同一事务边界；回调收到事务内的仓储句柄 */
+  abstract runInTransaction<T>(fn: (tx: DatabasePort) => Promise<T>): Promise<T>;
 }
 
 export abstract class PaymentGatewayPort {

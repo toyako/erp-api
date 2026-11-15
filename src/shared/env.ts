@@ -8,6 +8,7 @@ export const EnvironmentSchema = z.object({
   REDIS_URL: z.string().optional(),
   JWT_SECRET: z.string().min(8).optional(),
   DESKTOP_MODE: z.enum(['demo', 'live']).default('demo'),
+  ERP_DB_ADAPTER: z.enum(['inmemory', 'prisma']).default('inmemory'),
 });
 
 export type Environment = z.infer<typeof EnvironmentSchema>;

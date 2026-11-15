@@ -10,6 +10,7 @@ import { DatabasePort } from '../domain/ports';
 import { TENANT_ID } from '../application/sales.service';
 
 interface State {
+  credentials: Record<string, string>;
   principals: Principal[];
   skus: Sku[];
   prices: PriceList[];
@@ -38,7 +39,14 @@ function seed(): State {
     { id: '00000000-0000-4000-8000-000000000201', tenantId: TENANT_ID, skuId: skuA, batchCode: 'BATCH-001', availableQty: 100, reservedQty: 0, totalQty: 100 },
     { id: '00000000-0000-4000-8000-000000000202', tenantId: TENANT_ID, skuId: skuB, batchCode: 'BATCH-002', availableQty: 50, reservedQty: 0, totalQty: 50 },
   ];
-  return { principals, skus, prices, lots, orders: [] };
+  return {
+    credentials: { admin: 'demo1234', sales: 'demo1234', viewer: 'demo1234' },
+    principals,
+    skus,
+    prices,
+    lots,
+    orders: [],
+  };
 }
 
 /** 演示适配器：无外部依赖，可离线运行；生产适配器用 Prisma 实现同一端口 */
@@ -50,6 +58,10 @@ export class InMemoryDatabase extends DatabasePort {
   async findPrincipalByUsername(username: string) {
     const found = this.state.principals.find((p) => p.username === username);
     return found ? { ...found } : null;
+  }
+  /** 演示适配器存明文口令；Prisma 适配器存 bcrypt hash */
+  async findPasswordHash(username: string) {
+    return username in this.state.credentials ? this.state.credentials[username] ?? null : null;
   }
   async listPrincipals() { return this.state.principals.map((p) => ({ ...p })); }
   async listSkus() { return this.state.skus.map((s) => ({ ...s })); }
@@ -88,10 +100,10 @@ export class InMemoryDatabase extends DatabasePort {
   }
 
   /** 失败时回滚到事务前快照，保证「占库存 + 建订单」原子性 */
-  async runInTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  async runInTransaction<T>(fn: (tx: DatabasePort) => Promise<T>): Promise<T> {
     const snapshot = structuredClone(this.state);
     try {
-      return await fn();
+      return await fn(this);
     } catch (error) {
       this.state = snapshot;
       throw error;

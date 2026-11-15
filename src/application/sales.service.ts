@@ -24,25 +24,25 @@ export class SalesService {
 
   /** 金额只由服务端按价格表计算，请求体不含任何金额字段 */
   async createOrder(input: CreateOrderRequest): Promise<SalesOrder> {
-    return this.db.runInTransaction(async () => {
+    return this.db.runInTransaction(async (tx) => {
       const lines: OrderLine[] = [];
       let total = zeroMoney();
 
       for (const item of input.lines) {
-        const sku = await this.db.findSku(item.skuId);
+        const sku = await tx.findSku(item.skuId);
         if (!sku) throw new DomainError('NOT_FOUND', `SKU ${item.skuId} 不存在`, 404);
 
-        const price = await this.db.findPriceBySku(sku.id);
+        const price = await tx.findPriceBySku(sku.id);
         if (!price) throw new DomainError('NOT_FOUND', `SKU ${sku.id} 未定价`, 404);
 
-        const lot = await this.db.findLotBySku(sku.id);
+        const lot = await tx.findLotBySku(sku.id);
         if (!lot || lot.availableQty < item.quantity) {
           throw new DomainError('INSUFFICIENT_STOCK', `SKU ${sku.id} 可用库存不足`, 409);
         }
 
         lot.availableQty -= item.quantity;
         lot.reservedQty += item.quantity;
-        await this.db.saveLot(lot);
+        await tx.saveLot(lot);
 
         total = addMoney(total, multiplyMoney(price.price, item.quantity));
         lines.push({
@@ -62,7 +62,7 @@ export class SalesService {
         total,
         createdAt: new Date().toISOString(),
       };
-      await this.db.saveOrder(order);
+      await tx.saveOrder(order);
       return order;
     });
   }
