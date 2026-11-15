@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.18.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # 契约仓库与本仓库并列存放（package.json 使用 file:../erp-contracts）
+      - name: Clone contracts
+        run: git clone --depth 1 https://github.com/toyako/erp-contracts.git ../erp-contracts
+
+      - run: pnpm install
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      - run: pnpm build
+
+      - name: 全链路 HTTP 冒烟
+        run: node scripts/smoke-api.cjs

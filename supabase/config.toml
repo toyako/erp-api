@@ -1,0 +1,15 @@
+project_id = "erp-showcase"
+
+[api]
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+
+[db]
+port = 54322
+major_version = 16
+
+[studio]
+port = 54323
+
+# 迁移位于 supabase/migrations/，与 apps/erp-api/prisma/schema.prisma 保持一致。
+# 远程项目需先 `supabase link --project-ref <ref>`，再 `supabase db push`。
