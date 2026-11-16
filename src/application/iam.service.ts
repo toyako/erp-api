@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { LoginRequestSchema, type LoginResponse, type Principal } from '@erp/contracts';
+import { LoginRequestSchema, type LoginResponse, type PageQueryParams, type Principal } from '@erp/contracts';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { DatabasePort, DomainError } from '../domain/ports';
@@ -77,7 +77,7 @@ export class IamService {
     return principal;
   }
 
-  listPrincipals() {
-    return this.db.listPrincipals();
+  listPrincipals(params: PageQueryParams) {
+    return this.db.listPrincipals(params);
   }
 }

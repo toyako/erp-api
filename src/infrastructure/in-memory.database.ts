@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type {
   InventoryLot,
+  PageQueryParams,
   PriceList,
   Principal,
   PurchaseOrder,
@@ -8,7 +9,7 @@ import type {
   Sku,
   Supplier,
 } from '@erp/contracts';
-import { DatabasePort } from '../domain/ports';
+import { DatabasePort, type Page } from '../domain/ports';
 import { TENANT_ID } from '../application/sales.service';
 
 interface State {
@@ -55,6 +56,12 @@ function seed(): State {
   };
 }
 
+/** 内存分页：对已有数组切片 + total，与 HTTP 响应形状一致 */
+function pageOf<T>(all: T[], params: PageQueryParams): Page<T> {
+  const start = (params.page - 1) * params.pageSize;
+  return { items: all.slice(start, start + params.pageSize), total: all.length, page: params.page, pageSize: params.pageSize };
+}
+
 /** 演示适配器：无外部依赖，可离线运行；生产适配器用 Prisma 实现同一端口 */
 @Injectable()
 export class InMemoryDatabase extends DatabasePort {
@@ -69,8 +76,8 @@ export class InMemoryDatabase extends DatabasePort {
   async findPasswordHash(username: string) {
     return username in this.state.credentials ? this.state.credentials[username] ?? null : null;
   }
-  async listPrincipals() { return this.state.principals.map((p) => ({ ...p })); }
-  async listSkus() { return this.state.skus.map((s) => ({ ...s })); }
+  async listPrincipals(params: PageQueryParams) { return pageOf(this.state.principals.map((p) => ({ ...p })), params); }
+  async listSkus(params: PageQueryParams) { return pageOf(this.state.skus.map((s) => ({ ...s })), params); }
   async findSku(id: string) {
     const found = this.state.skus.find((s) => s.id === id);
     return found ? { ...found } : null;
@@ -85,7 +92,7 @@ export class InMemoryDatabase extends DatabasePort {
     const found = this.state.prices.find((p) => p.skuId === skuId);
     return found ? { ...found } : null;
   }
-  async listLots() { return this.state.lots.map((l) => ({ ...l })); }
+  async listLots(params: PageQueryParams) { return pageOf(this.state.lots.map((l) => ({ ...l })), params); }
   async findLotBySku(skuId: string) {
     const found = this.state.lots.find((l) => l.skuId === skuId);
     return found ? { ...found } : null;
@@ -105,8 +112,13 @@ export class InMemoryDatabase extends DatabasePort {
     else this.state.orders.push(copy);
   }
 
-  async listSuppliers() {
-    return this.state.suppliers.map((s) => ({ ...s }));
+  async listSuppliers(params: PageQueryParams) {
+    return pageOf(this.state.suppliers.map((s) => ({ ...s })), params);
+  }
+
+  async findSupplier(id: string) {
+    const found = this.state.suppliers.find((s) => s.id === id);
+    return found ? { ...found } : null;
   }
 
   async saveSupplier(supplier: Supplier) {
@@ -116,13 +128,13 @@ export class InMemoryDatabase extends DatabasePort {
     else this.state.suppliers.push(copy);
   }
 
-  async listOrders() { return this.state.orders.map((o) => ({ ...o })); }
+  async listOrders(params: PageQueryParams) { return pageOf(this.state.orders.map((o) => ({ ...o })), params); }
   async findOrder(id: string) {
     const found = this.state.orders.find((o) => o.id === id);
     return found ? { ...found } : null;
   }
 
-  async listPurchaseOrders() { return this.state.purchaseOrders.map((o) => ({ ...o })); }
+  async listPurchaseOrders(params: PageQueryParams) { return pageOf(this.state.purchaseOrders.map((o) => ({ ...o })), params); }
   async findPurchaseOrder(id: string) {
     const found = this.state.purchaseOrders.find((o) => o.id === id);
     return found ? { ...found } : null;

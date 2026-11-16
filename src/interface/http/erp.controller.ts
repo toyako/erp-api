@@ -24,18 +24,6 @@ import { SalesService, TENANT_ID } from '../../application/sales.service';
 import { DatabasePort, DomainError } from '../../domain/ports';
 import { ZodValidationPipe } from './zod-validation.pipe';
 
-/** 真实分页：内存切片 + 返回真实 total / page / pageSize（Phase 1，未下推到 Port） */
-const paginate = <T>(items: T[], query: PageQueryParams) => {
-  const total = items.length;
-  const start = (query.page - 1) * query.pageSize;
-  return {
-    items: items.slice(start, start + query.pageSize),
-    total,
-    page: query.page,
-    pageSize: query.pageSize,
-  };
-};
-
 @Controller()
 export class ErpController {
   constructor(
@@ -64,7 +52,7 @@ export class ErpController {
   async suppliers(
     @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
   ) {
-    return paginate(await this.db.listSuppliers(), query);
+    return this.db.listSuppliers(query);
   }
 
   @Post('purchase/suppliers')
@@ -91,8 +79,7 @@ export class ErpController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(UpdateSupplierRequestSchema)) body: UpdateSupplierRequest,
   ) {
-    const suppliers = await this.db.listSuppliers();
-    const found = suppliers.find((s) => s.id === id);
+    const found = await this.db.findSupplier(id);
     if (!found) throw new DomainError('NOT_FOUND', `供应商 ${id} 不存在`, 404);
     const merged: Supplier = {
       ...found,
@@ -110,7 +97,7 @@ export class ErpController {
   async purchaseOrders(
     @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
   ) {
-    return paginate(await this.purchase.listPurchaseOrders(), query);
+    return this.purchase.listPurchaseOrders(query);
   }
 
   @Post('purchase/orders')
@@ -139,14 +126,14 @@ export class ErpController {
   async principals(
     @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
   ) {
-    return paginate(await this.iam.listPrincipals(), query);
+    return this.iam.listPrincipals(query);
   }
 
   @Get('products/skus')
   async skus(
     @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
   ) {
-    return paginate(await this.db.listSkus(), query);
+    return this.db.listSkus(query);
   }
 
   /** SKU 编辑/上下架：照抄供应商内联模式，找不到报 404 */
@@ -171,14 +158,14 @@ export class ErpController {
   async lots(
     @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
   ) {
-    return paginate(await this.db.listLots(), query);
+    return this.db.listLots(query);
   }
 
   @Get('sales/orders')
   async orders(
     @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
   ) {
-    return paginate(await this.sales.listOrders(), query);
+    return this.sales.listOrders(query);
   }
 
   @Post('sales/orders')

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   CreateOrderRequest,
   OrderLine,
+  PageQueryParams,
   SalesOrder,
 } from '@erp/contracts';
 import { DatabasePort, DomainError, PaymentGatewayPort } from '../domain/ports';
@@ -18,8 +19,8 @@ export class SalesService {
     private readonly payment: PaymentGatewayPort,
   ) {}
 
-  listOrders() {
-    return this.db.listOrders();
+  listOrders(params: PageQueryParams) {
+    return this.db.listOrders(params);
   }
 
   /** 金额只由服务端按价格表计算，请求体不含任何金额字段 */

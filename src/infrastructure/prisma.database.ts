@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type {
   InventoryLot,
   OrderLine,
+  PageQueryParams,
   PriceList,
   Principal,
   PurchaseOrder,
@@ -12,7 +13,7 @@ import type {
   Supplier,
 } from '@erp/contracts';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { DatabasePort } from '../domain/ports';
+import { DatabasePort, type Page } from '../domain/ports';
 
 type Client = PrismaClient | Prisma.TransactionClient;
 
@@ -70,6 +71,38 @@ function toLot(row: {
   };
 }
 
+function toSupplier(row: {
+  id: string;
+  tenantId: string;
+  code: string;
+  name: string;
+  contact: string | null;
+  phone: string | null;
+  rating: number;
+  enabled: boolean;
+}): Supplier {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    code: row.code,
+    name: row.name,
+    ...(row.contact ? { contact: row.contact } : {}),
+    ...(row.phone ? { phone: row.phone } : {}),
+    rating: row.rating,
+    enabled: row.enabled,
+  };
+}
+
+/** 分页参数换算：Prisma skip/take */
+function pageArgs(params: PageQueryParams) {
+  return { skip: (params.page - 1) * params.pageSize, take: params.pageSize };
+}
+
+/** 组装分页结果，与 HTTP 响应形状一致 */
+function toPage<T>(items: T[], total: number, params: PageQueryParams): Page<T> {
+  return { items, total, page: params.page, pageSize: params.pageSize };
+}
+
 function toPrice(row: {
   id: string;
   skuId: string;
@@ -109,14 +142,20 @@ export class PrismaDatabase extends DatabasePort {
     return row?.passwordHash ?? null;
   }
 
-  async listPrincipals() {
-    const rows = await this.client.principal.findMany();
-    return rows.map(toPrincipal);
+  async listPrincipals(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.principal.findMany({ orderBy: { username: 'asc' }, ...pageArgs(params) }),
+      this.client.principal.count(),
+    ]);
+    return toPage(rows.map(toPrincipal), total, params);
   }
 
-  async listSkus() {
-    const rows = await this.client.sku.findMany();
-    return rows.map(toSku);
+  async listSkus(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.sku.findMany({ orderBy: { code: 'asc' }, ...pageArgs(params) }),
+      this.client.sku.count(),
+    ]);
+    return toPage(rows.map(toSku), total, params);
   }
 
   async findSku(id: string) {
@@ -147,9 +186,12 @@ export class PrismaDatabase extends DatabasePort {
     return row ? toPrice(row) : null;
   }
 
-  async listLots() {
-    const rows = await this.client.inventoryLot.findMany();
-    return rows.map(toLot);
+  async listLots(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.inventoryLot.findMany({ orderBy: { batchCode: 'asc' }, ...pageArgs(params) }),
+      this.client.inventoryLot.count(),
+    ]);
+    return toPage(rows.map(toLot), total, params);
   }
 
   async findLotBySku(skuId: string) {
@@ -205,18 +247,17 @@ export class PrismaDatabase extends DatabasePort {
     });
   }
 
-  async listSuppliers() {
-    const rows = await this.client.supplier.findMany({ orderBy: { createdAt: 'asc' } });
-    return rows.map((row) => ({
-      id: row.id,
-      tenantId: row.tenantId,
-      code: row.code,
-      name: row.name,
-      ...(row.contact ? { contact: row.contact } : {}),
-      ...(row.phone ? { phone: row.phone } : {}),
-      rating: row.rating,
-      enabled: row.enabled,
-    }));
+  async listSuppliers(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.supplier.findMany({ orderBy: { createdAt: 'asc' }, ...pageArgs(params) }),
+      this.client.supplier.count(),
+    ]);
+    return toPage(rows.map(toSupplier), total, params);
+  }
+
+  async findSupplier(id: string) {
+    const row = await this.client.supplier.findUnique({ where: { id } });
+    return row ? toSupplier(row) : null;
   }
 
   async saveSupplier(supplier: Supplier) {
@@ -242,14 +283,20 @@ export class PrismaDatabase extends DatabasePort {
     });
   }
 
-  async listOrders() {
-    const rows = await this.client.salesOrder.findMany({ orderBy: { createdAt: 'desc' } });
-    return Promise.all(rows.map((row) => this.hydrate(row)));
+  async listOrders(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.salesOrder.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.salesOrder.count(),
+    ]);
+    return toPage(await Promise.all(rows.map((row) => this.hydrate(row))), total, params);
   }
 
-  async listPurchaseOrders() {
-    const rows = await this.client.purchaseOrder.findMany({ orderBy: { createdAt: 'desc' } });
-    return Promise.all(rows.map((row) => this.hydratePurchaseOrder(row)));
+  async listPurchaseOrders(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.purchaseOrder.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.purchaseOrder.count(),
+    ]);
+    return toPage(await Promise.all(rows.map((row) => this.hydratePurchaseOrder(row))), total, params);
   }
 
   async findPurchaseOrder(id: string) {

@@ -1,5 +1,6 @@
 import type {
   InventoryLot,
+  PageQueryParams,
   PriceList,
   Principal,
   PurchaseOrder,
@@ -28,24 +29,33 @@ export class DomainError extends Error {
   }
 }
 
+/** 分页结果：与 HTTP 响应形状一致 { items, total, page, pageSize } */
+export type Page<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 export abstract class DatabasePort {
   abstract findPrincipalByUsername(username: string): Promise<Principal | null>;
   /** 仅供认证校验，不通过契约对外暴露 */
   abstract findPasswordHash(username: string): Promise<string | null>;
-  abstract listPrincipals(): Promise<Principal[]>;
-  abstract listSkus(): Promise<Sku[]>;
+  abstract listPrincipals(params: PageQueryParams): Promise<Page<Principal>>;
+  abstract listSkus(params: PageQueryParams): Promise<Page<Sku>>;
   abstract findSku(id: string): Promise<Sku | null>;
   abstract saveSku(sku: Sku): Promise<void>;
   abstract findPriceBySku(skuId: string): Promise<PriceList | null>;
-  abstract listLots(): Promise<InventoryLot[]>;
+  abstract listLots(params: PageQueryParams): Promise<Page<InventoryLot>>;
   abstract findLotBySku(skuId: string): Promise<InventoryLot | null>;
   abstract saveLot(lot: InventoryLot): Promise<void>;
   abstract saveOrder(order: SalesOrder): Promise<void>;
-  abstract listOrders(): Promise<SalesOrder[]>;
+  abstract listOrders(params: PageQueryParams): Promise<Page<SalesOrder>>;
   abstract findOrder(id: string): Promise<SalesOrder | null>;
-  abstract listSuppliers(): Promise<Supplier[]>;
+  abstract listSuppliers(params: PageQueryParams): Promise<Page<Supplier>>;
+  abstract findSupplier(id: string): Promise<Supplier | null>;
   abstract saveSupplier(supplier: Supplier): Promise<void>;
-  abstract listPurchaseOrders(): Promise<PurchaseOrder[]>;
+  abstract listPurchaseOrders(params: PageQueryParams): Promise<Page<PurchaseOrder>>;
   abstract findPurchaseOrder(id: string): Promise<PurchaseOrder | null>;
   abstract savePurchaseOrder(order: PurchaseOrder): Promise<void>;
   /** 订单确认与库存占用必须在同一事务边界；回调收到事务内的仓储句柄 */

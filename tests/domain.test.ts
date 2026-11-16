@@ -13,7 +13,7 @@ function makeService() {
 }
 
 async function firstSku(db: InMemoryDatabase) {
-  const sku = (await db.listSkus())[0]
+  const sku = (await db.listSkus({ page: 1, pageSize: 20 })).items[0]
   if (!sku) throw new Error("演示数据缺少 SKU")
   return sku
 }
@@ -47,10 +47,10 @@ describe("SalesService", () => {
   it("金额由价格表计算，下单即占用库存且总量不变", async () => {
     const { db, service } = makeService()
     const sku = await firstSku(db)
-    const before = (await db.listLots()).find((lot) => lot.skuId === sku.id)!
+    const before = (await db.listLots({ page: 1, pageSize: 20 })).items.find((lot) => lot.skuId === sku.id)!
 
     const order = await service.createOrder({ lines: [{ skuId: sku.id, quantity: 2 }] })
-    const after = (await db.listLots()).find((lot) => lot.skuId === sku.id)!
+    const after = (await db.listLots({ page: 1, pageSize: 20 })).items.find((lot) => lot.skuId === sku.id)!
 
     expect(order.total.amount).toBe(39800)
     expect(order.status).toBe("draft")
@@ -63,13 +63,13 @@ describe("SalesService", () => {
   it("库存不足时抛领域异常并回滚事务", async () => {
     const { db, service } = makeService()
     const sku = await firstSku(db)
-    const before = (await db.listLots()).find((lot) => lot.skuId === sku.id)!
+    const before = (await db.listLots({ page: 1, pageSize: 20 })).items.find((lot) => lot.skuId === sku.id)!
 
     await expect(
       service.createOrder({ lines: [{ skuId: sku.id, quantity: 99999 }] })
     ).rejects.toMatchObject({ code: "INSUFFICIENT_STOCK" })
 
-    const after = (await db.listLots()).find((lot) => lot.skuId === sku.id)!
+    const after = (await db.listLots({ page: 1, pageSize: 20 })).items.find((lot) => lot.skuId === sku.id)!
     expect(after.reservedQty).toBe(before.reservedQty)
     expect(after.availableQty).toBe(before.availableQty)
   })
@@ -89,11 +89,11 @@ describe("SalesService", () => {
   it("取消释放占用库存回可用量，总量不变；已收款不可取消", async () => {
     const { db, service } = makeService()
     const sku = await firstSku(db)
-    const before = (await db.listLots()).find((lot) => lot.skuId === sku.id)!
+    const before = (await db.listLots({ page: 1, pageSize: 20 })).items.find((lot) => lot.skuId === sku.id)!
 
     const order = await service.createOrder({ lines: [{ skuId: sku.id, quantity: 2 }] })
     expect((await service.cancelOrder(order.id)).status).toBe("cancelled")
-    const afterCancel = (await db.listLots()).find((lot) => lot.skuId === sku.id)!
+    const afterCancel = (await db.listLots({ page: 1, pageSize: 20 })).items.find((lot) => lot.skuId === sku.id)!
     expect(afterCancel.reservedQty).toBe(before.reservedQty)
     expect(afterCancel.availableQty).toBe(before.availableQty)
     expect(afterCancel.totalQty).toBe(before.totalQty)
@@ -107,13 +107,13 @@ describe("SalesService", () => {
   it("履约扣减占用库存与总量，可用量不变", async () => {
     const { db, service } = makeService()
     const sku = await firstSku(db)
-    const before = (await db.listLots()).find((lot) => lot.skuId === sku.id)!
+    const before = (await db.listLots({ page: 1, pageSize: 20 })).items.find((lot) => lot.skuId === sku.id)!
 
     const order = await service.createOrder({ lines: [{ skuId: sku.id, quantity: 2 }] })
     await service.confirmOrder(order.id)
     await service.payOrder(order.id)
     expect((await service.fulfillOrder(order.id)).status).toBe("fulfilled")
-    const after = (await db.listLots()).find((lot) => lot.skuId === sku.id)!
+    const after = (await db.listLots({ page: 1, pageSize: 20 })).items.find((lot) => lot.skuId === sku.id)!
     expect(after.reservedQty).toBe(before.reservedQty)
     expect(after.availableQty).toBe(before.availableQty - 2)
     expect(after.totalQty).toBe(before.totalQty - 2)

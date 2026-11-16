@@ -3,6 +3,7 @@ import { addMoney, multiplyMoney, zeroMoney } from '../domain/money';
 import { randomUUID } from 'node:crypto';
 import type {
   CreatePurchaseOrderRequest,
+  PageQueryParams,
   PurchaseOrder,
   PurchaseOrderLine,
 } from '@erp/contracts';
@@ -14,15 +15,14 @@ import { TENANT_ID } from './sales.service';
 export class PurchaseService {
   constructor(private readonly db: DatabasePort) {}
 
-  listPurchaseOrders() {
-    return this.db.listPurchaseOrders();
+  listPurchaseOrders(params: PageQueryParams) {
+    return this.db.listPurchaseOrders(params);
   }
 
   /** 金额只由服务端按价格表计算，请求体不含任何金额字段；建单不碰库存 */
   async createPurchaseOrder(input: CreatePurchaseOrderRequest): Promise<PurchaseOrder> {
     return this.db.runInTransaction(async (tx) => {
-      const suppliers = await tx.listSuppliers();
-      const supplier = suppliers.find((s) => s.id === input.supplierId);
+      const supplier = await tx.findSupplier(input.supplierId);
       if (!supplier) throw new DomainError('NOT_FOUND', `供应商 ${input.supplierId} 不存在`, 404);
 
       const lines: PurchaseOrderLine[] = [];
