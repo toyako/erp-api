@@ -126,10 +126,15 @@ describe("StocktakeService", () => {
     const page = await stocktake.listStocktakes({ page: 1, pageSize: 1 })
     expect(page.total).toBe(4)
     expect(page.items).toHaveLength(1)
-    expect([a.id, b.id]).toContain(page.items[0]!.id)
+    // 三单同毫秒创建时 createdAt 相同，列表只保证“新三单在前、种子在后”，
+    // 不保证三单内部谁第一：CI 快机器上三单同毫秒是常态，旧断言
+    //（首页必为 a 或 b）在此时会把已取消的 created 排到第一而挂掉（flaky，
+    // 2026-11-16 18:17 CI #26 因此失败，本地 69/69 是撞上了毫秒边界）。
+    expect([created.id, a.id, b.id]).toContain(page.items[0]!.id)
     const all = await stocktake.listStocktakes({ page: 1, pageSize: 20 })
     expect(all.items.map((x) => x.id)).toContain(a.id)
     expect(all.items.map((x) => x.id)).toContain(b.id)
+    expect(all.items.slice(0, 3).map((x) => x.id).sort()).toEqual([created.id, a.id, b.id].sort())
     // 演示种子 STK-DEMO-001 的创建时间是当天 00:00，最旧，排在最后
     expect(all.items[all.items.length - 1]!.stocktakeNo).toBe("STK-DEMO-001")
   })
