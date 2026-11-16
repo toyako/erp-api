@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { PrismaClient } from '@prisma/client';
 import { IamService } from './application/iam.service';
 import { CustomerService } from './application/customer.service';
@@ -15,6 +16,7 @@ import { MockPaymentGateway } from './infrastructure/mock-payment.gateway';
 import { PrismaDatabase } from './infrastructure/prisma.database';
 import { ErpController } from './interface/http/erp.controller';
 import { AuditInterceptor } from './interface/http/audit.interceptor';
+import { AuthGuard } from './interface/http/auth.guard';
 
 /** ERP_DB_ADAPTER=prisma 时连真实数据库，否则用内存演示适配器 */
 function createDatabase(): DatabasePort {
@@ -37,6 +39,8 @@ function createDatabase(): DatabasePort {
     StocktakeService,
     DashboardService,
     AuditInterceptor,
+    AuthGuard,
+    { provide: APP_GUARD, useClass: AuthGuard },
     { provide: DatabasePort, useFactory: createDatabase },
     { provide: PaymentGatewayPort, useClass: MockPaymentGateway },
   ],

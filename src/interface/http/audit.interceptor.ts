@@ -10,7 +10,7 @@ import { TENANT_ID } from '../../application/sales.service';
  *
  * - 只记写请求：GET 不记；失败（抛错）不记。
  * - 跳过 /auth/*：登录请求体含密码，登录前 actor 也无意义。
- * - actor 未接鉴权时取 'admin'，请求头 x-actor 有值则取之。
+ * - actor 优先取守卫挂上的 JWT 主体（req.user），退回请求头 x-actor，再退回 'admin'。
  * - action 为 `METHOD + path`（去掉全局前缀 /api），如 'POST /customers'。
  * - targetType 从 path 首段推导：purchase/orders → 'purchase-orders'、
  *   sales/orders → 'sales-orders'，其余取首段。
@@ -30,6 +30,7 @@ type AuditRequest = {
   url?: string;
   headers?: Record<string, string | string[] | undefined>;
   body?: unknown;
+  user?: { username?: string };
 };
 
 function redact(value: unknown): unknown {
@@ -89,8 +90,14 @@ export class AuditInterceptor implements NestInterceptor {
   }
 
   private async write(req: AuditRequest, method: string, path: string, data: unknown): Promise<void> {
+    // actor 优先取守卫挂上的 JWT 主体，退回 x-actor 请求头，再退回 'admin'
+    const userActor = req.user?.username;
     const headerActor = req.headers?.['x-actor'];
-    const actor = typeof headerActor === 'string' && headerActor.trim() ? headerActor.trim() : 'admin';
+    const actor = userActor?.trim()
+      ? userActor.trim()
+      : typeof headerActor === 'string' && headerActor.trim()
+        ? headerActor.trim()
+        : 'admin';
     const detail = JSON.stringify(redact(req.body ?? {})).slice(0, 500);
     const entityId = docNoOf(data);
     await this.db.saveAuditEvent({

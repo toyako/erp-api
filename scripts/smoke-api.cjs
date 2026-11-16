@@ -20,11 +20,20 @@ async function waitReady() {
 }
 
 async function call(path, options) {
-  const r = await fetch(base + path, options);
+  // 鉴权收口后：登录成功后所有调用都带 admin token（/health 与 /auth/login 本身公开，不带也没事）
+  const headers = { ...(options?.headers || {}) };
+  if (accessToken && !headers.Authorization && !headers.authorization) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+  const r = await fetch(base + path, { ...options, headers });
   let body = {};
   try { body = await r.json(); } catch { /* empty body */ }
   return { status: r.status, body };
 }
+
+// admin 登录后取到的 token；smoke 用户登录只验“能登上”，后续调用仍用 admin token
+//（sales 调 /iam/principals 会 403）
+let accessToken = '';
 
 const jsonPost = (value) => ({
   method: 'POST',
@@ -37,6 +46,8 @@ async function main() {
 
   const health = await call('/health');
   const login = await call('/auth/login', jsonPost({ username: 'admin', password: 'demo1234' }));
+  if (!login.body.accessToken) throw new Error('admin login did not return a token');
+  accessToken = login.body.accessToken;
   const skus = await call('/products/skus');
   const sku = skus.body.items && skus.body.items[0];
   if (!sku) throw new Error('no seed SKU');

@@ -61,6 +61,7 @@ import { StocktakeService } from '../../application/stocktake.service';
 import { TransferService } from '../../application/transfer.service';
 import { DatabasePort, DomainError } from '../../domain/ports';
 import { AuditInterceptor } from './audit.interceptor';
+import { Public } from './auth.guard';
 import { ZodValidationPipe } from './zod-validation.pipe';
 
 @Controller()
@@ -79,6 +80,7 @@ export class ErpController {
     private readonly db: DatabasePort,
   ) {}
 
+  @Public()
   @Get('health')
   health() {
     return { status: 'ok', service: 'erp-api', mode: process.env.DESKTOP_MODE ?? 'demo' };
@@ -135,6 +137,7 @@ export class ErpController {
     return this.dashboard.listMovements(query);
   }
 
+  @Public()
   @Post('auth/login')
   login(@Body(new ZodValidationPipe(LoginRequestSchema)) body: LoginRequest) {
     return this.iam.login(body);
