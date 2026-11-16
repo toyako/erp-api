@@ -9,6 +9,7 @@ import type {
   PurchaseOrder,
   Rma,
   SalesOrder,
+  Shipment,
   Sku,
   Spu,
   Stocktake,
@@ -80,6 +81,9 @@ export abstract class DatabasePort {
   abstract listRmas(params: PageQueryParams): Promise<Page<Rma>>;
   abstract findRma(id: string): Promise<Rma | null>;
   abstract saveRma(rma: Rma): Promise<void>;
+  abstract listShipments(params: PageQueryParams): Promise<Page<Shipment>>;
+  abstract findShipment(id: string): Promise<Shipment | null>;
+  abstract saveShipment(shipment: Shipment): Promise<void>;
   abstract listTransfers(params: PageQueryParams): Promise<Page<Transfer>>;
   abstract findTransfer(id: string): Promise<Transfer | null>;
   abstract saveTransfer(transfer: Transfer): Promise<void>;

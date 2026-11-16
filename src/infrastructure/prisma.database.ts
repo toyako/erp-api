@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import type {
   AuditEvent,
   AuditEventListQuery,
@@ -13,6 +14,8 @@ import type {
   Rma,
   Role,
   SalesOrder,
+  Shipment,
+  ShipmentLine,
   Sku,
   Spu,
   Stocktake,
@@ -172,6 +175,38 @@ function toRma(row: {
     rejectReason: row.rejectReason,
     createdAt: row.createdAt.toISOString(),
     receivedAt: row.receivedAt ? row.receivedAt.toISOString() : null,
+  };
+}
+
+function toShipment(
+  row: {
+    id: string;
+    tenantId: string;
+    shipmentNo: string;
+    orderId: string;
+    orderNo: string;
+    status: string;
+    carrier: string | null;
+    trackingNo: string | null;
+    createdAt: Date;
+    shippedAt: Date | null;
+    deliveredAt: Date | null;
+  },
+  lines: ShipmentLine[],
+): Shipment {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    shipmentNo: row.shipmentNo,
+    orderId: row.orderId,
+    orderNo: row.orderNo,
+    status: row.status as Shipment['status'],
+    lines: lines.map((l) => ({ skuId: l.skuId, quantity: l.quantity, batchCode: l.batchCode })),
+    carrier: row.carrier,
+    trackingNo: row.trackingNo,
+    createdAt: row.createdAt.toISOString(),
+    shippedAt: row.shippedAt ? row.shippedAt.toISOString() : null,
+    deliveredAt: row.deliveredAt ? row.deliveredAt.toISOString() : null,
   };
 }
 
@@ -610,6 +645,67 @@ export class PrismaDatabase extends DatabasePort {
         receivedAt: rma.receivedAt ? new Date(rma.receivedAt) : null,
       },
       update: { status: rma.status, rejectReason: rma.rejectReason, receivedAt: rma.receivedAt ? new Date(rma.receivedAt) : null },
+    });
+  }
+
+  async listShipments(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.shipment.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.shipment.count(),
+    ]);
+    const lines = await this.client.shipmentLine.findMany({
+      where: { shipmentId: { in: rows.map((r) => r.id) } },
+    });
+    const byShipment = new Map<string, typeof lines>();
+    for (const l of lines) {
+      const arr = byShipment.get(l.shipmentId) ?? [];
+      arr.push(l);
+      byShipment.set(l.shipmentId, arr);
+    }
+    return toPage(rows.map((r) => toShipment(r, byShipment.get(r.id) ?? [])), total, params);
+  }
+
+  async findShipment(id: string) {
+    const row = await this.client.shipment.findUnique({ where: { id } });
+    if (!row) return null;
+    const lines = await this.client.shipmentLine.findMany({ where: { shipmentId: id } });
+    return toShipment(row, lines);
+  }
+
+  async saveShipment(shipment: Shipment) {
+    await this.client.shipment.upsert({
+      where: { id: shipment.id },
+      create: {
+        id: shipment.id,
+        tenantId: shipment.tenantId,
+        shipmentNo: shipment.shipmentNo,
+        orderId: shipment.orderId,
+        orderNo: shipment.orderNo,
+        status: shipment.status,
+        carrier: shipment.carrier,
+        trackingNo: shipment.trackingNo,
+        createdAt: new Date(shipment.createdAt),
+        shippedAt: shipment.shippedAt ? new Date(shipment.shippedAt) : null,
+        deliveredAt: shipment.deliveredAt ? new Date(shipment.deliveredAt) : null,
+      },
+      update: {
+        status: shipment.status,
+        carrier: shipment.carrier,
+        trackingNo: shipment.trackingNo,
+        shippedAt: shipment.shippedAt ? new Date(shipment.shippedAt) : null,
+        deliveredAt: shipment.deliveredAt ? new Date(shipment.deliveredAt) : null,
+      },
+    });
+    // schema 未定义反向关系字段，行项单独写入（照抄 saveOrder 的做法）
+    await this.client.shipmentLine.deleteMany({ where: { shipmentId: shipment.id } });
+    await this.client.shipmentLine.createMany({
+      data: shipment.lines.map((line) => ({
+        id: randomUUID(),
+        shipmentId: shipment.id,
+        skuId: line.skuId,
+        quantity: line.quantity,
+        batchCode: line.batchCode,
+      })),
     });
   }
 

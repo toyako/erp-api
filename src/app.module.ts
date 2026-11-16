@@ -8,6 +8,7 @@ import { ProductService } from './application/product.service';
 import { PurchaseService } from './application/purchase.service';
 import { RmaService } from './application/rma.service';
 import { SalesService } from './application/sales.service';
+import { ShipmentService } from './application/shipment.service';
 import { StocktakeService } from './application/stocktake.service';
 import { TransferService } from './application/transfer.service';
 import { DatabasePort, PaymentGatewayPort } from './domain/ports';
@@ -35,6 +36,7 @@ function createDatabase(): DatabasePort {
     ProductService,
     CustomerService,
     RmaService,
+    ShipmentService,
     TransferService,
     StocktakeService,
     DashboardService,

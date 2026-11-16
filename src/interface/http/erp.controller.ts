@@ -8,6 +8,7 @@ import {
   CreatePrincipalRequestSchema,
   CreatePurchaseOrderRequestSchema,
   CreateRmaRequestSchema,
+  CreateShipmentRequestSchema,
   CreateSkuRequestSchema,
   CreateStocktakeRequestSchema,
   CreateSupplierRequestSchema,
@@ -18,6 +19,7 @@ import {
   RejectRmaRequestSchema,
   RejectTransferRequestSchema,
   ReportQuerySchema,
+  ShipShipmentRequestSchema,
   TodoListQuerySchema,
   UpdateCustomerRequestSchema,
   UpdatePriceRequestSchema,
@@ -31,6 +33,7 @@ import {
   type CreatePrincipalRequest,
   type CreatePurchaseOrderRequest,
   type CreateRmaRequest,
+  type CreateShipmentRequest,
   type CreateSkuRequest,
   type CreateStocktakeRequest,
   type CreateSupplierRequest,
@@ -41,6 +44,7 @@ import {
   type RejectRmaRequest,
   type RejectTransferRequest,
   type ReportQuery,
+  type ShipShipmentRequest,
   type Sku,
   type Supplier,
   type TodoListQuery,
@@ -57,6 +61,7 @@ import { ProductService } from '../../application/product.service';
 import { PurchaseService } from '../../application/purchase.service';
 import { RmaService } from '../../application/rma.service';
 import { SalesService, TENANT_ID } from '../../application/sales.service';
+import { ShipmentService } from '../../application/shipment.service';
 import { StocktakeService } from '../../application/stocktake.service';
 import { TransferService } from '../../application/transfer.service';
 import { DatabasePort, DomainError } from '../../domain/ports';
@@ -74,6 +79,7 @@ export class ErpController {
     private readonly product: ProductService,
     private readonly customer: CustomerService,
     private readonly rma: RmaService,
+    private readonly shipment: ShipmentService,
     private readonly transfer: TransferService,
     private readonly stocktake: StocktakeService,
     private readonly dashboard: DashboardService,
@@ -421,6 +427,53 @@ export class ErpController {
   @Post('rmas/:id/cancel')
   cancelRma(@Param('id') id: string) {
     return this.rma.cancelRma(id);
+  }
+
+  @Get('shipments')
+  async shipments(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.shipment.listShipments(query);
+  }
+
+  @Get('shipments/:id')
+  async getShipment(@Param('id') id: string) {
+    return this.shipment.findShipment(id);
+  }
+
+  @Post('shipments')
+  createShipment(
+    @Body(new ZodValidationPipe(CreateShipmentRequestSchema)) body: CreateShipmentRequest,
+  ) {
+    return this.shipment.createShipment(body);
+  }
+
+  @Post('shipments/:id/pick')
+  pickShipment(@Param('id') id: string) {
+    return this.shipment.pickShipment(id);
+  }
+
+  @Post('shipments/:id/pack')
+  packShipment(@Param('id') id: string) {
+    return this.shipment.packShipment(id);
+  }
+
+  @Post('shipments/:id/ship')
+  shipShipment(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ShipShipmentRequestSchema)) body: ShipShipmentRequest,
+  ) {
+    return this.shipment.shipShipment(id, body);
+  }
+
+  @Post('shipments/:id/deliver')
+  deliverShipment(@Param('id') id: string) {
+    return this.shipment.deliverShipment(id);
+  }
+
+  @Post('shipments/:id/cancel')
+  cancelShipment(@Param('id') id: string) {
+    return this.shipment.cancelShipment(id);
   }
 
   @Get('transfers')

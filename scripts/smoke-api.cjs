@@ -126,6 +126,23 @@ async function main() {
   const lotsAfterStocktake = (await call('/inventory/lots')).body.items || [];
   const sourceAfterStocktake = lotsAfterStocktake.find((l) => l.batchCode === 'BATCH-001' && l.location === '主仓') || {};
 
+  // 发货闭环：新单建单→确认→付款→建发货单→拣货（回填批次）→打包→发货（订单变 fulfilled、库存扣掉）→送达
+  const shipOrder = await call('/sales/orders', jsonPost({ lines: [{ skuId: sku.id, quantity: 1 }] }));
+  const shipOrderId = shipOrder.body.id;
+  const shipOrderConfirmed = shipOrderId ? await call(`/sales/orders/${shipOrderId}/confirm`, { method: 'POST' }) : { status: 0, body: {} };
+  const shipOrderPaid = shipOrderId ? await call(`/sales/orders/${shipOrderId}/pay`, { method: 'POST' }) : { status: 0, body: {} };
+  const shipmentCreated = shipOrderId ? await call('/shipments', jsonPost({ orderId: shipOrderId })) : { status: 0, body: {} };
+  const shipmentId = shipmentCreated.body.id;
+  const shipmentPicked = shipmentId ? await call(`/shipments/${shipmentId}/pick`, { method: 'POST' }) : { status: 0, body: {} };
+  const shipmentPacked = shipmentId ? await call(`/shipments/${shipmentId}/pack`, { method: 'POST' }) : { status: 0, body: {} };
+  const shipmentShipped = shipmentId ? await call(`/shipments/${shipmentId}/ship`, jsonPost({ carrier: '顺丰速运', trackingNo: 'SF1234567890' })) : { status: 0, body: {} };
+  const shipOrderList = shipOrderId ? await call('/sales/orders?page=1&pageSize=20') : { status: 0, body: {} };
+  const shipOrderAfter = (shipOrderList.body.items || []).find((o) => o.id === shipOrderId) || {};
+  const lotsAfterShip = (await call('/inventory/lots')).body.items || [];
+  const sourceAfterShip = lotsAfterShip.find((l) => l.batchCode === 'BATCH-001' && l.location === '主仓') || {};
+  const shipmentDelivered = shipmentId ? await call(`/shipments/${shipmentId}/deliver`, { method: 'POST' }) : { status: 0, body: {} };
+  const shipmentBadShip = shipmentId ? await call(`/shipments/${shipmentId}/ship`, jsonPost({ carrier: '顺丰速运', trackingNo: 'SF2' })) : { status: 0, body: {} };
+
   // 仪表盘汇总：只断言形状与下限——冒烟自身建了 2 单（1 已完成、1 已取消），
   // 其余绝对值会随种子变化，不写死
   const overview = await call('/dashboard/overview');
@@ -204,6 +221,13 @@ async function main() {
     transferCompleted: transferCompleted.body.status === 'completed' && transferCompleted.body.batchCode === 'BATCH-001' && sourceAfterTransfer.availableQty === lotAfterRma.availableQty - 2 && destAfterTransfer.availableQty === 2 && destAfterTransfer.totalQty === 2,
     stocktakeCreated: stocktakeCreated.status === 201 && stocktakeCreated.body.status === 'draft' && stocktakeCreated.body.systemQty === sourceAfterTransfer.totalQty && stocktakeCreated.body.difference === -1,
     stocktakeConfirmed: stocktakeConfirmed.body.status === 'confirmed' && sourceAfterStocktake.totalQty === sourceAfterTransfer.totalQty - 1 && sourceAfterStocktake.availableQty === sourceAfterTransfer.totalQty - 1,
+    shipmentCreated: shipmentCreated.status === 201 && shipmentCreated.body.status === 'draft' && shipmentCreated.body.shipmentNo && shipmentCreated.body.shipmentNo.startsWith('SHP-') && Array.isArray(shipmentCreated.body.lines) && shipmentCreated.body.lines[0].batchCode === null,
+    shipmentPicked: shipmentPicked.body.status === 'picking' && shipmentPicked.body.lines[0].batchCode === 'BATCH-001',
+    shipmentPacked: shipmentPacked.body.status === 'packed',
+    shipmentShipped: shipmentShipped.body.status === 'shipped' && shipmentShipped.body.carrier === '顺丰速运' && shipmentShipped.body.trackingNo === 'SF1234567890' && Boolean(shipmentShipped.body.shippedAt),
+    shipmentFulfillsOrder: shipOrderAfter.status === 'fulfilled' && sourceAfterShip.totalQty === sourceAfterStocktake.totalQty - 1 && sourceAfterShip.reservedQty === 0 && sourceAfterShip.availableQty === sourceAfterStocktake.availableQty - 1,
+    shipmentDelivered: shipmentDelivered.body.status === 'delivered' && Boolean(shipmentDelivered.body.deliveredAt),
+    shipmentBadShipRejected: shipmentBadShip.status === 409 && shipmentBadShip.body.code === 'INVALID_STATE',
     auditRecorded: auditAll.status === 200 && auditAll.body.total >= 1 && (auditAll.body.items || []).every((e) => typeof e.action === 'string' && e.action.length > 0),
     auditEntityFilter: auditCustomers.status === 200 && auditCustomers.body.total >= 1 && (auditCustomers.body.items || []).every((e) => e.targetType === 'customers') && (auditCustomers.body.items || []).some((e) => e.action === 'POST /customers'),
     auditGetNotLogged: auditAllAgain.body.total === auditAll.body.total,

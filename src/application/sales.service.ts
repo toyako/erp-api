@@ -9,6 +9,7 @@ import type {
 } from '@erp/contracts';
 import { DatabasePort, DomainError, PaymentGatewayPort } from '../domain/ports';
 import { nextDocNo } from '../domain/doc-no';
+import { deductReservedForOrder } from '../domain/fulfill';
 import { assertTransition } from '../domain/order-state';
 
 export const TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -96,14 +97,7 @@ export class SalesService {
       const order = await tx.findOrder(id);
       if (!order) throw new DomainError('NOT_FOUND', `订单 ${id} 不存在`, 404);
       assertTransition(order.status, 'fulfilled');
-      for (const line of order.lines) {
-        const lot = await tx.findLotBySku(line.skuId);
-        if (!lot) continue;
-        const consumed = Math.min(line.quantity, lot.reservedQty);
-        lot.reservedQty -= consumed;
-        lot.totalQty -= consumed;
-        await tx.saveLot(lot);
-      }
+      await deductReservedForOrder(tx, order);
       order.status = 'fulfilled';
       await tx.saveOrder(order);
       return order;

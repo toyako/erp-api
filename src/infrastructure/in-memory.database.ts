@@ -10,6 +10,7 @@ import type {
   PurchaseOrder,
   Rma,
   SalesOrder,
+  Shipment,
   Sku,
   Spu,
   Stocktake,
@@ -32,6 +33,7 @@ interface State {
   purchaseOrders: PurchaseOrder[];
   customers: Customer[];
   rmas: Rma[];
+  shipments: Shipment[];
   transfers: Transfer[];
   stocktakes: Stocktake[];
   auditEvents: AuditEvent[];
@@ -91,6 +93,7 @@ function seed(): State {
     purchaseOrders: [],
     customers: [],
     rmas,
+    shipments: [],
     transfers,
     stocktakes,
     auditEvents: [],
@@ -267,6 +270,23 @@ export class InMemoryDatabase extends DatabasePort {
     const copy = { ...rma };
     if (i >= 0) this.state.rmas[i] = copy;
     else this.state.rmas.push(copy);
+  }
+
+  async listShipments(params: PageQueryParams) {
+    const sorted = [...this.state.shipments].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return pageOf(sorted.map((s) => ({ ...s, lines: s.lines.map((l) => ({ ...l })) })), params);
+  }
+
+  async findShipment(id: string) {
+    const found = this.state.shipments.find((s) => s.id === id);
+    return found ? { ...found, lines: found.lines.map((l) => ({ ...l })) } : null;
+  }
+
+  async saveShipment(shipment: Shipment) {
+    const i = this.state.shipments.findIndex((s) => s.id === shipment.id);
+    const copy = { ...shipment, lines: shipment.lines.map((l) => ({ ...l })) };
+    if (i >= 0) this.state.shipments[i] = copy;
+    else this.state.shipments.push(copy);
   }
 
   async listTransfers(params: PageQueryParams) {

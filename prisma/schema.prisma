@@ -208,6 +208,34 @@ model Rma {
   @@map("rmas")
 }
 
+/// 发货单：一单只针对一个销售订单，行照抄订单行；拣货时回填每行的 batch_code
+model Shipment {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  shipmentNo  String    @unique @map("shipment_no")
+  orderId     String    @map("order_id")
+  orderNo     String    @map("order_no")
+  status      String
+  carrier     String?
+  trackingNo  String?   @map("tracking_no")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  shippedAt   DateTime? @map("shipped_at")
+  deliveredAt DateTime? @map("delivered_at")
+
+  @@index([tenantId, status])
+  @@map("shipments")
+}
+
+model ShipmentLine {
+  id         String  @id @default(uuid())
+  shipmentId String  @map("shipment_id")
+  skuId      String  @map("sku_id")
+  quantity   Int
+  batchCode  String? @map("batch_code")
+  @@index([shipmentId])
+  @@map("shipment_lines")
+}
+
 /// 调拨：在两个仓库/库位之间移动一个 SKU 的库存；batch_code 为完成时实际动用的源批次
 model Transfer {
   id            String    @id @default(uuid())
