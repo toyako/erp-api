@@ -39,12 +39,14 @@ model Spu {
 }
 
 model Sku {
-  id      String  @id @default(uuid())
-  spuId   String  @map("spu_id")
-  code    String  @unique
-  spec    String
-  unit    String
-  enabled Boolean @default(true)
+  id           String  @id @default(uuid())
+  spuId        String  @map("spu_id")
+  code         String  @unique
+  spec         String
+  unit         String
+  enabled      Boolean @default(true)
+  costAmount   Int?    @map("cost_amount")
+  costCurrency String? @map("cost_currency") @db.Char(3)
   @@map("skus")
 }
 

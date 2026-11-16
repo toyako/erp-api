@@ -159,7 +159,12 @@ async function main() {
   // 其余绝对值会随种子变化，不写死
   const overview = await call('/dashboard/overview');
   const report = await call('/dashboard/report?range=7d');
+  const purchaseReport = await call('/dashboard/purchase-report?range=7d');
   const financeSummary = await call('/dashboard/finance-summary');
+
+  // SKU 成本价：PATCH 设 ¥130 再清回 null（验 updateSku 的 cost 合并与 null 清除；token 由 call 自动注入）
+  const skuCostSet = sku.id ? await call(`/products/skus/${sku.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cost: { amount: 13000, currency: 'CNY' } }) }) : { status: 0, body: {} };
+  const skuCostCleared = sku.id ? await call(`/products/skus/${sku.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cost: null }) }) : { status: 0, body: {} };
   const todos = await call('/dashboard/todos?page=1&pageSize=2');
   const receivables = await call('/dashboard/receivables?page=1&pageSize=2');
   const payables = await call('/dashboard/payables?page=1&pageSize=2');
@@ -248,6 +253,11 @@ async function main() {
     auditRecorded: auditAll.status === 200 && auditAll.body.total >= 1 && (auditAll.body.items || []).every((e) => typeof e.action === 'string' && e.action.length > 0),
     auditEntityFilter: auditCustomers.status === 200 && auditCustomers.body.total >= 1 && (auditCustomers.body.items || []).every((e) => e.targetType === 'customers') && (auditCustomers.body.items || []).some((e) => e.action === 'POST /customers'),
     auditGetNotLogged: auditAllAgain.body.total === auditAll.body.total,
+    overviewTrend30: Array.isArray(overview.body.trend30) && overview.body.trend30.length === 30 && Array.isArray(overview.body.trend7) && overview.body.trend7.length === 7,
+    reportGross: report.body.gross && Array.isArray(report.body.gross.rows) && typeof report.body.gross.totalAmount === 'number' && (report.body.gross.totalGross === null || typeof report.body.gross.totalGross === 'number'),
+    purchaseReport: purchaseReport.status === 200 && Array.isArray(purchaseReport.body.buckets) && purchaseReport.body.buckets.length === 6 && Array.isArray(purchaseReport.body.supplierRanking) && Array.isArray(purchaseReport.body.statusCounts) && purchaseReport.body.statusCounts.length === 4 && (purchaseReport.body.receivedRate === null || typeof purchaseReport.body.receivedRate === 'number'),
+    skuCostSet: skuCostSet.body.cost && skuCostSet.body.cost.amount === 13000,
+    skuCostCleared: skuCostCleared.body.cost === null,
   };
 
   console.log(JSON.stringify({ checks, sample: { orderTotal: created.body.total, reservedQty: lotAfter.reservedQty } }, null, 2));

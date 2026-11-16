@@ -109,6 +109,13 @@ export class ErpController {
     return this.dashboard.getReport(query.range);
   }
 
+  @Get('dashboard/purchase-report')
+  purchaseReport(
+    @Query(new ZodValidationPipe(ReportQuerySchema)) query: ReportQuery,
+  ) {
+    return this.dashboard.getPurchaseReport(query.range);
+  }
+
   @Get('dashboard/todos')
   todos(
     @Query(new ZodValidationPipe(TodoListQuerySchema)) query: TodoListQuery,
@@ -318,6 +325,8 @@ export class ErpController {
       unit: body.unit ?? found.unit,
       enabled: body.enabled ?? found.enabled,
     };
+    // cost 传 null 表示清除成本价（回未维护），须用 !== undefined 判，不能用 ??（null 会被 ?? 吞掉）
+    if (body.cost !== undefined) merged.cost = body.cost;
     await this.db.saveSku(merged);
     return merged;
   }

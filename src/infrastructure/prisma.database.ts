@@ -51,6 +51,8 @@ function toSku(row: {
   spec: string;
   unit: string;
   enabled: boolean;
+  costAmount: number | null;
+  costCurrency: string | null;
 }): Sku {
   return {
     id: row.id,
@@ -59,6 +61,7 @@ function toSku(row: {
     spec: row.spec,
     unit: row.unit,
     enabled: row.enabled,
+    cost: row.costAmount !== null && row.costCurrency !== null ? { amount: row.costAmount, currency: row.costCurrency } : null,
   };
 }
 
@@ -440,8 +443,16 @@ export class PrismaDatabase extends DatabasePort {
         spec: sku.spec,
         unit: sku.unit,
         enabled: sku.enabled,
+        costAmount: sku.cost ? sku.cost.amount : null,
+        costCurrency: sku.cost ? sku.cost.currency : null,
       },
-      update: { spec: sku.spec, unit: sku.unit, enabled: sku.enabled },
+      update: {
+        spec: sku.spec,
+        unit: sku.unit,
+        enabled: sku.enabled,
+        costAmount: sku.cost ? sku.cost.amount : null,
+        costCurrency: sku.cost ? sku.cost.currency : null,
+      },
     });
   }
 

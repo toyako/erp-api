@@ -6,6 +6,7 @@ import type {
   OverviewSummary,
   PageQueryParams,
   PayableRow,
+  PurchaseReport,
   RecentActivity,
   ReceivableRow,
   ReportRange,
@@ -82,18 +83,19 @@ export class DashboardService {
   }
 
   private async loadAll() {
-    const [orders, lots, skus, purchaseOrders, rmas, transfers, stocktakes, shipments, invoices] = await Promise.all([
+    const [orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices] = await Promise.all([
       this.collectAll((p) => this.db.listOrders(p)),
       this.collectAll((p) => this.db.listLots(p)),
       this.collectAll((p) => this.db.listSkus(p)),
       this.collectAll((p) => this.db.listPurchaseOrders(p)),
+      this.collectAll((p) => this.db.listSuppliers(p)),
       this.collectAll((p) => this.db.listRmas(p)),
       this.collectAll((p) => this.db.listTransfers(p)),
       this.collectAll((p) => this.db.listStocktakes(p)),
       this.collectAll((p) => this.db.listShipments(p)),
       this.collectAll((p) => this.db.listInvoices(p)),
     ]);
-    return { orders, lots, skus, purchaseOrders, rmas, transfers, stocktakes, shipments, invoices };
+    return { orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices };
   }
 
   async getOverview(): Promise<OverviewSummary> {
@@ -114,6 +116,14 @@ export class DashboardService {
     const today = todayUtc();
     const trend7 = Array.from({ length: 7 }, (_, i) => {
       const date = addDays(today, i - 6);
+      const amount = orders
+        .filter((o) => o.status !== 'cancelled' && o.createdAt.slice(0, 10) === date)
+        .reduce((n, o) => n + o.total.amount, 0);
+      return { date, amount };
+    });
+
+    const trend30 = Array.from({ length: 30 }, (_, i) => {
+      const date = addDays(today, i - 29);
       const amount = orders
         .filter((o) => o.status !== 'cancelled' && o.createdAt.slice(0, 10) === date)
         .reduce((n, o) => n + o.total.amount, 0);
@@ -156,6 +166,7 @@ export class DashboardService {
       warningCount: lots.filter((l) => l.availableQty < WARNING_QTY).length,
       statusDist: [...statusMap.entries()].map(([status, count]) => ({ status: status as SalesOrder['status'], count })),
       trend7,
+      trend30,
       ranking,
       lowStock,
       firstSku: firstSku ? { id: firstSku.id, code: firstSku.code } : null,
@@ -250,7 +261,103 @@ export class DashboardService {
         stock: lots.filter((l) => l.skuId === s.id).reduce((n, l) => n + l.availableQty, 0),
       }));
 
-    return { range, buckets, ranking, turnover, slow };
+    // 毛利：按订单行算（销售额 = 行单价×数量，成本 = SKU 成本价×数量）；未维护成本价的 SKU
+    // 行 gross/marginRate 为 null，汇总只计已维护成本的 SKU（全部未维护时汇总为 null）
+    const grossBySku = new Map<string, { qty: number; amount: number; cost: number | null }>();
+    for (const o of curOrders) {
+      for (const line of o.lines) {
+        const sku = skuById.get(line.skuId);
+        const e = grossBySku.get(line.skuId) ?? { qty: 0, amount: 0, cost: null };
+        e.qty += line.quantity;
+        e.amount += line.unitPrice.amount * line.quantity;
+        if (sku?.cost) e.cost = (e.cost ?? 0) + sku.cost.amount * line.quantity;
+        grossBySku.set(line.skuId, e);
+      }
+    }
+    const grossRows = [...grossBySku.entries()]
+      .map(([skuId, v]) => {
+        const sku = skuById.get(skuId);
+        const hasCost = v.cost !== null;
+        return {
+          skuId,
+          code: sku ? sku.code : skuId.slice(0, 8),
+          spec: sku ? sku.spec : '',
+          qty: v.qty,
+          amount: v.amount,
+          cost: hasCost ? v.cost : null,
+          gross: hasCost ? v.amount - (v.cost as number) : null,
+          marginRate: hasCost && v.amount > 0 ? Math.round(((v.amount - (v.cost as number)) / v.amount) * 1000) / 10 : null,
+        };
+      })
+      .sort((a, b) => b.amount - a.amount);
+    const grossCounted = grossRows.filter((r) => r.cost !== null);
+    // 汇总只计已维护成本的 SKU：totalAmount 也只取这些行的销售额，否则未维护成本的销售额会被当成纯毛利
+    const grossTotalAmount = grossCounted.reduce((n, r) => n + r.amount, 0);
+    const grossTotalCost = grossCounted.reduce((n, r) => n + (r.cost as number), 0);
+    const gross = {
+      totalAmount: grossTotalAmount,
+      totalCost: grossTotalCost,
+      totalGross: grossCounted.length > 0 ? grossTotalAmount - grossTotalCost : null,
+      marginRate:
+        grossCounted.length > 0 && grossTotalAmount > 0
+          ? Math.round(((grossTotalAmount - grossTotalCost) / grossTotalAmount) * 1000) / 10
+          : null,
+      rows: grossRows,
+    };
+
+    return { range, buckets, ranking, turnover, slow, gross };
+  }
+
+  /** 采购报表：按采购单创建时间分桶（与 getReport 同口径）；供应商排行按采购金额降序 */
+  async getPurchaseReport(range: ReportRange): Promise<PurchaseReport> {
+    const { purchaseOrders, suppliers } = await this.loadAll();
+    const supplierById = new Map(suppliers.map((s) => [s.id, s]));
+
+    const today = todayUtc();
+    const days = range === '30d' ? 30 : range === 'month' ? Number(today.slice(8, 10)) : 7;
+    const startMs = dayStartMs(addDays(today, -(days - 1)));
+    const endMs = dayStartMs(today) + DAY_MS - 1;
+    const inRange = (iso: string) => {
+      const t = new Date(iso).getTime();
+      return t >= startMs && t <= endMs;
+    };
+    const curPos = purchaseOrders.filter((p) => p.status !== 'cancelled' && inRange(p.createdAt));
+
+    const size = Math.ceil(days / 6);
+    const buckets = Array.from({ length: 6 }, (_, i) => ({
+      label: monthDayLabel(addDays(today, -(days - 1) + i * size)),
+      amount: 0,
+    }));
+    for (const p of curPos) {
+      const idx = Math.min(5, Math.floor((new Date(p.createdAt).getTime() - startMs) / (DAY_MS * size)));
+      const bucket = buckets[idx];
+      if (bucket) bucket.amount += p.total.amount;
+    }
+
+    const bySupplier = new Map<string, { amount: number; count: number }>();
+    for (const p of curPos) {
+      const e = bySupplier.get(p.supplierId) ?? { amount: 0, count: 0 };
+      e.amount += p.total.amount;
+      e.count += 1;
+      bySupplier.set(p.supplierId, e);
+    }
+    const supplierRanking = [...bySupplier.entries()]
+      .map(([supplierId, v]) => {
+        const s = supplierById.get(supplierId);
+        return { supplierId, name: s ? s.name : supplierId.slice(0, 8), amount: v.amount, count: v.count };
+      })
+      .sort((a, b) => b.amount - a.amount);
+
+    const statusCounts = (['draft', 'submitted', 'received', 'cancelled'] as const).map((status) => {
+      const list = curPos.filter((p) => p.status === status);
+      return { status, count: list.length, amount: list.reduce((n, p) => n + p.total.amount, 0) };
+    });
+
+    const totalAmount = curPos.reduce((n, p) => n + p.total.amount, 0);
+    const receivedAmount = curPos.filter((p) => p.status === 'received').reduce((n, p) => n + p.total.amount, 0);
+    const receivedRate = totalAmount > 0 ? Math.round((receivedAmount / totalAmount) * 1000) / 10 : null;
+
+    return { range, buckets, supplierRanking, statusCounts, receivedRate };
   }
 
   /** 待办派生：订单按状态一条、退货待审核一条、调拨按状态三条（待提交/待审核/待完成）、盘点待确认一条、已提交采购单待入库一条、发货单按状态三条（待拣货/待打包/待发货）、发票待开具一条、可用量 < 20 的批次一条预警；先过滤再分页 */

@@ -55,6 +55,7 @@ export class ProductService {
       spec: input.spec,
       unit: input.unit,
       enabled: input.enabled ?? true,
+      cost: null,
     };
     await this.db.saveSku(sku);
     return sku;

@@ -19,6 +19,7 @@ const CATALOG = [
     spec: '标准版',
     unit: '套',
     amount: 19900,
+    cost: 12000,
     batchCode: 'BATCH-001',
     location: '主仓',
     quantity: 100,
@@ -30,6 +31,7 @@ const CATALOG = [
     spec: '专业版',
     unit: '套',
     amount: 29900,
+    cost: 18000,
     batchCode: 'BATCH-002',
     location: '华东仓',
     quantity: 50,
@@ -79,7 +81,8 @@ async function main() {
   for (const item of CATALOG) {
     await prisma.sku.upsert({
       where: { id: item.skuId },
-      update: {},
+      // update 也写 cost：老库重跑种子时回填成本价（演示 SKU 成本随种子走）
+      update: { costAmount: item.cost, costCurrency: 'CNY' },
       create: {
         id: item.skuId,
         spuId: SPU,
@@ -87,6 +90,8 @@ async function main() {
         spec: item.spec,
         unit: item.unit,
         enabled: true,
+        costAmount: item.cost,
+        costCurrency: 'CNY',
       },
     });
 

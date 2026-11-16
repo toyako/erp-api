@@ -55,8 +55,8 @@ function seed(): State {
     { id: spuId, tenantId: TENANT_ID, name: '云智物标准套件', categoryCode: 'SOFTWARE', description: '演示商品，数据全部虚构', enabled: true },
   ];
   const skus: Sku[] = [
-    { id: skuA, spuId, code: 'SKU-001', spec: '标准版', unit: '套', enabled: true },
-    { id: skuB, spuId, code: 'SKU-002', spec: '专业版', unit: '套', enabled: true },
+    { id: skuA, spuId, code: 'SKU-001', spec: '标准版', unit: '套', enabled: true, cost: { amount: 12000, currency: 'CNY' } },
+    { id: skuB, spuId, code: 'SKU-002', spec: '专业版', unit: '套', enabled: true, cost: { amount: 18000, currency: 'CNY' } },
   ];
   const prices: PriceList[] = [
     { id: '00000000-0000-4000-8000-000000000301', skuId: skuA, channelCode: 'DIRECT', price: { amount: 19900, currency: 'CNY' }, effectiveFrom: '2026-01-01T00:00:00.000Z' },
