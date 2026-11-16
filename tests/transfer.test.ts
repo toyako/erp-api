@@ -138,10 +138,13 @@ describe("TransferService", () => {
     const page = await transfer.listTransfers({ page: 1, pageSize: 1 })
     expect(page.total).toBe(4)
     expect(page.items).toHaveLength(1)
-    expect([a.id, b.id]).toContain(page.items[0]!.id)
+    // 三单同毫秒创建时 createdAt 相同，列表只保证“新三单在前、种子在后”，
+    // 不保证三单内部谁第一（与盘点测试同款 flaky，2026-11-16 18:21 CI #27 因此失败）。
+    expect([created.id, a.id, b.id]).toContain(page.items[0]!.id)
     const all = await transfer.listTransfers({ page: 1, pageSize: 20 })
     expect(all.items.map((x) => x.id)).toContain(a.id)
     expect(all.items.map((x) => x.id)).toContain(b.id)
+    expect(all.items.slice(0, 3).map((x) => x.id).sort()).toEqual([created.id, a.id, b.id].sort())
     // 演示种子 TRF-DEMO-001 的创建时间是当天 00:00，最旧，排在最后
     expect(all.items[all.items.length - 1]!.transferNo).toBe("TRF-DEMO-001")
   })
