@@ -4,9 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_LOCATION } from '@erp/contracts';
 import type {
   CreatePurchaseOrderRequest,
+  GoodsReceipt,
   PageQueryParams,
   PurchaseOrder,
   PurchaseOrderLine,
+  ReceivePurchaseOrderRequest,
 } from '@erp/contracts';
 import { DatabasePort, DomainError } from '../domain/ports';
 import { nextDocNo } from '../domain/doc-no';
@@ -19,6 +21,14 @@ export class PurchaseService {
 
   listPurchaseOrders(params: PageQueryParams) {
     return this.db.listPurchaseOrders(params);
+  }
+
+  listReceipts(params: PageQueryParams, purchaseOrderId?: string) {
+    return this.db.listReceipts(params, purchaseOrderId ? { purchaseOrderId } : undefined);
+  }
+
+  findReceipt(id: string) {
+    return this.db.findReceipt(id);
   }
 
   /** 金额只由服务端按价格表计算，请求体不含任何金额字段；建单不碰库存 */
@@ -42,6 +52,7 @@ export class PurchaseService {
           id: randomUUID(),
           skuId: sku.id,
           quantity: item.quantity,
+          receivedQty: 0,
           unitPrice: price.price,
         });
       }
@@ -54,6 +65,7 @@ export class PurchaseService {
         status: 'draft',
         lines,
         total,
+        rejectReason: null,
         createdAt: new Date().toISOString(),
       };
       await tx.savePurchaseOrder(order);
@@ -69,34 +81,113 @@ export class PurchaseService {
     return order;
   }
 
-  /** 入库：逐行把数量加进批次；无批次的 SKU 新建批次（batchCode 用采购单号）。整单放进同一事务 */
-  async receivePurchaseOrder(id: string): Promise<PurchaseOrder> {
+  /** 审核通过：只允许 submitted → approved */
+  async approvePurchaseOrder(id: string): Promise<PurchaseOrder> {
+    const order = await this.requirePurchaseOrder(id);
+    assertPurchaseTransition(order.status, 'approved');
+    order.status = 'approved';
+    await this.db.savePurchaseOrder(order);
+    return order;
+  }
+
+  /** 驳回：原因必填（无原因 400），落库到 rejectReason；只允许 submitted → rejected */
+  async rejectPurchaseOrder(id: string, reason: string): Promise<PurchaseOrder> {
+    const order = await this.requirePurchaseOrder(id);
+    if (!reason?.trim()) {
+      throw new DomainError('INVALID_STATE', '驳回原因不能为空', 400);
+    }
+    assertPurchaseTransition(order.status, 'rejected');
+    order.status = 'rejected';
+    order.rejectReason = reason.trim();
+    await this.db.savePurchaseOrder(order);
+    return order;
+  }
+
+  /**
+   * 入库：lines 缺省 = 整单收完（老行为）；传 lines = 按行收指定数量。
+   * 每行收到的数量加进批次（无批次新建，batchCode 用采购单号）；receivedQty 累加；
+   * 全部行收满 → received，否则 → partially_received；每次入库建一张入库单；同一事务。
+   */
+  async receivePurchaseOrder(
+    id: string,
+    input: ReceivePurchaseOrderRequest = {},
+  ): Promise<{ order: PurchaseOrder; receipt: GoodsReceipt }> {
     return this.db.runInTransaction(async (tx) => {
       const order = await tx.findPurchaseOrder(id);
       if (!order) throw new DomainError('NOT_FOUND', `采购订单 ${id} 不存在`, 404);
-      assertPurchaseTransition(order.status, 'received');
+      if (order.status !== 'approved' && order.status !== 'partially_received') {
+        throw new DomainError('INVALID_STATE', `采购订单状态 ${order.status} 不允许入库`, 409);
+      }
+
+      // 本次要收的行：缺省为全部行收剩余量；传了则逐行校验
+      const wanted = new Map<string, number>();
+      if (input.lines) {
+        for (const item of input.lines) {
+          const line = order.lines.find((l) => l.skuId === item.skuId);
+          if (!line) throw new DomainError('INVALID_STATE', `采购单里没有该 SKU 的行`, 400);
+          const remaining = line.quantity - line.receivedQty;
+          // 同一 SKU 在 body 里出现多次时按累计量校验，不能只按单条校验
+          const accumulated = (wanted.get(item.skuId) ?? 0) + item.quantity;
+          if (accumulated > remaining) {
+            throw new DomainError('CONFLICT', `SKU ${item.skuId} 本次入库 ${accumulated} 件超过剩余 ${remaining} 件`, 409);
+          }
+          wanted.set(item.skuId, accumulated);
+        }
+      } else {
+        for (const line of order.lines) {
+          const remaining = line.quantity - line.receivedQty;
+          if (remaining > 0) wanted.set(line.skuId, remaining);
+        }
+      }
+      if (wanted.size === 0) {
+        throw new DomainError('INVALID_STATE', '没有可入库的行（已全部收满）', 409);
+      }
+
+      const receiptLines: GoodsReceipt['lines'] = [];
       for (const line of order.lines) {
+        const qty = wanted.get(line.skuId);
+        if (!qty) continue;
         const lot = await tx.findLotBySku(line.skuId);
+        let batchCode: string;
         if (lot) {
-          lot.availableQty += line.quantity;
-          lot.totalQty += line.quantity;
+          lot.availableQty += qty;
+          lot.totalQty += qty;
           await tx.saveLot(lot);
+          batchCode = lot.batchCode;
         } else {
+          batchCode = order.orderNo;
           await tx.saveLot({
             id: randomUUID(),
             tenantId: TENANT_ID,
             skuId: line.skuId,
-            batchCode: order.orderNo,
+            batchCode,
             location: DEFAULT_LOCATION,
-            availableQty: line.quantity,
+            availableQty: qty,
             reservedQty: 0,
-            totalQty: line.quantity,
+            totalQty: qty,
           });
         }
+        line.receivedQty += qty;
+        receiptLines.push({ id: randomUUID(), skuId: line.skuId, quantity: qty, batchCode });
       }
-      order.status = 'received';
+
+      const allReceived = order.lines.every((l) => l.receivedQty >= l.quantity);
+      order.status = allReceived ? 'received' : 'partially_received';
       await tx.savePurchaseOrder(order);
-      return order;
+
+      const now = new Date().toISOString();
+      const receipt: GoodsReceipt = {
+        id: randomUUID(),
+        tenantId: TENANT_ID,
+        receiptNo: nextDocNo('GRN'),
+        purchaseOrderId: order.id,
+        orderNo: order.orderNo,
+        lines: receiptLines,
+        receivedAt: now,
+        createdAt: now,
+      };
+      await tx.saveReceipt(receipt);
+      return { order, receipt };
     });
   }
 

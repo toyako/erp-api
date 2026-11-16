@@ -348,7 +348,7 @@ export class DashboardService {
       })
       .sort((a, b) => b.amount - a.amount);
 
-    const statusCounts = (['draft', 'submitted', 'received', 'cancelled'] as const).map((status) => {
+    const statusCounts = (['draft', 'submitted', 'approved', 'partially_received', 'received', 'rejected', 'cancelled'] as const).map((status) => {
       const list = curPos.filter((p) => p.status === status);
       return { status, count: list.length, amount: list.reduce((n, p) => n + p.total.amount, 0) };
     });
@@ -360,7 +360,7 @@ export class DashboardService {
     return { range, buckets, supplierRanking, statusCounts, receivedRate };
   }
 
-  /** 待办派生：订单按状态一条、退货待审核一条、调拨按状态三条（待提交/待审核/待完成）、盘点待确认一条、已提交采购单待入库一条、发货单按状态三条（待拣货/待打包/待发货）、发票待开具一条、可用量 < 20 的批次一条预警；先过滤再分页 */
+  /** 待办派生：订单按状态一条、退货待审核一条、调拨按状态三条（待提交/待审核/待完成）、盘点待确认一条、采购单按状态两条（待审核/待入库）、发货单按状态三条（待拣货/待打包/待发货）、发票待开具一条、可用量 < 20 的批次一条预警；先过滤再分页 */
   async listTodos(query: TodoListQuery): Promise<Page<TodoItem>> {
     const { orders, lots, rmas, transfers, stocktakes, purchaseOrders, shipments, invoices } = await this.loadAll();
     const items: TodoItem[] = [];
@@ -418,7 +418,9 @@ export class DashboardService {
     }
     for (const p of purchaseOrders) {
       if (p.status === 'submitted') {
-        items.push({ id: `po-${p.id}`, type: 'purchase', typeLabel: '采购', cls: 'orange', title: '采购单待入库', refNo: p.orderNo, actor: '系统', time: p.createdAt, done: false, action: '去入库', to: '/erp/purchase/orders' });
+        items.push({ id: `po-review-${p.id}`, type: 'purchase', typeLabel: '采购', cls: 'orange', title: '采购单待审核', refNo: p.orderNo, actor: '系统', time: p.createdAt, done: false, action: '去审核', to: '/erp/purchase/orders' });
+      } else if (p.status === 'approved' || p.status === 'partially_received') {
+        items.push({ id: `po-${p.id}`, type: 'purchase', typeLabel: '采购', cls: 'orange', title: p.status === 'partially_received' ? '采购单待入库（部分已收）' : '采购单待入库', refNo: p.orderNo, actor: '系统', time: p.createdAt, done: false, action: '去入库', to: '/erp/purchase/orders' });
       }
     }
     items.sort((a, b) => Number(a.done) - Number(b.done) || b.time.localeCompare(a.time));

@@ -148,6 +148,7 @@ describe("DashboardService report", () => {
 
     const po1 = await purchase.createPurchaseOrder({ supplierId: supplier.id, lines: [{ skuId: skuA.id, quantity: 2 }] })
     await purchase.submitPurchaseOrder(po1.id)
+    await purchase.approvePurchaseOrder(po1.id)
     await purchase.receivePurchaseOrder(po1.id)
     const po2 = await purchase.createPurchaseOrder({ supplierId: supplier.id, lines: [{ skuId: skuB.id, quantity: 1 }] })
     void po2
@@ -164,7 +165,7 @@ describe("DashboardService report", () => {
     expect(received?.amount).toBe(39800)
     expect(draft?.count).toBe(1)
     expect(draft?.amount).toBe(29900)
-    expect(report.statusCounts).toHaveLength(4)
+    expect(report.statusCounts).toHaveLength(7)
     expect(report.receivedRate).toBe(57.1)
   })
 

@@ -53,6 +53,7 @@ async function seedPurchaseOrders(purchase: PurchaseService, db: InMemoryDatabas
   const draftPo = await purchase.createPurchaseOrder({ supplierId, lines: [{ skuId: a.id, quantity: 1 }] })
   const receivedPo = await purchase.createPurchaseOrder({ supplierId, lines: [{ skuId: b.id, quantity: 1 }] })
   await purchase.submitPurchaseOrder(receivedPo.id)
+  await purchase.approvePurchaseOrder(receivedPo.id)
   await purchase.receivePurchaseOrder(receivedPo.id)
   const submittedPo = await purchase.createPurchaseOrder({ supplierId, lines: [{ skuId: a.id, quantity: 1 }] })
   await purchase.submitPurchaseOrder(submittedPo.id)
@@ -186,18 +187,18 @@ describe("DashboardService", () => {
     expect(p2.total).toBe(3)
   })
 
-  it("采购待办：只有已提交采购单进待办，草稿与已入库不进", async () => {
+  it("采购待办：已提交进“待审核”，已审核/部分入库进“待入库”，草稿与已入库不进", async () => {
     const { purchase, db, dashboard } = makeDashboard()
     const { draftPo, receivedPo, submittedPo } = await seedPurchaseOrders(purchase, db)
 
     const all = await dashboard.listTodos({ page: 1, pageSize: 20, type: "purchase" })
     expect(all.total).toBe(1)
-    expect(all.items[0]).toMatchObject({ type: "purchase", typeLabel: "采购", title: "采购单待入库", refNo: submittedPo.orderNo, done: false, action: "去入库", to: "/erp/purchase/orders" })
+    expect(all.items[0]).toMatchObject({ type: "purchase", typeLabel: "采购", title: "采购单待审核", refNo: submittedPo.orderNo, done: false, action: "去审核", to: "/erp/purchase/orders" })
 
     const pending = await dashboard.listTodos({ page: 1, pageSize: 20, status: "pending" })
     // 单号防撞：三单同一毫秒建，orderNo 仍必不重（doc-no 进程内同毫秒去重），按单号与待办 id 双断言
     const purchaseIds = pending.items.filter((i) => i.type === "purchase").map((i) => i.id)
-    expect(purchaseIds).toEqual([`po-${submittedPo.id}`])
+    expect(purchaseIds).toEqual([`po-review-${submittedPo.id}`])
     expect(purchaseIds).not.toContain(`po-${draftPo.id}`)
     expect(purchaseIds).not.toContain(`po-${receivedPo.id}`)
     const purchaseRefNos = pending.items.filter((i) => i.type === "purchase").map((i) => i.refNo)
@@ -205,6 +206,12 @@ describe("DashboardService", () => {
     expect(purchaseRefNos).not.toContain(draftPo.orderNo)
     expect(purchaseRefNos).not.toContain(receivedPo.orderNo)
     expect(new Set([draftPo.orderNo, receivedPo.orderNo, submittedPo.orderNo]).size).toBe(3)
+
+    // 已审核的单进“待入库”待办
+    await purchase.approvePurchaseOrder(submittedPo.id)
+    const afterApprove = await dashboard.listTodos({ page: 1, pageSize: 20, type: "purchase" })
+    expect(afterApprove.total).toBe(1)
+    expect(afterApprove.items[0]).toMatchObject({ title: "采购单待入库", action: "去入库" })
   })
 
   it("最近活动取前 5 单", async () => {

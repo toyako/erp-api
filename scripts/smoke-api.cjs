@@ -155,6 +155,24 @@ async function main() {
   const invoiceVoided = invoiceId ? await call(`/invoices/${invoiceId}/void`, { method: 'POST' }) : { status: 0, body: {} };
   const invoiceRecreated = invOrderId ? await call('/invoices', jsonPost({ orderId: invOrderId, amount: { amount: 19900, currency: 'CNY' } })) : { status: 0, body: {} };
 
+  // 采购深化：建单→提交→审核→部分入库 2/5→收满→入库单两张；驳回须原因
+  const supplierCreated = await call('/purchase/suppliers', jsonPost({ code: 'SUP-SMOKE', name: '冒烟供货商', rating: 4 }));
+  const supplierId = supplierCreated.body.id;
+  const poCreated = supplierId ? await call('/purchase/orders', jsonPost({ supplierId, lines: [{ skuId: sku.id, quantity: 5 }] })) : { status: 0, body: {} };
+  const poId = poCreated.body.id;
+  const poSubmitted = poId ? await call(`/purchase/orders/${poId}/submit`, { method: 'POST' }) : { status: 0, body: {} };
+  const poReceiveEarly = poId ? await call(`/purchase/orders/${poId}/receive`, { method: 'POST' }) : { status: 0, body: {} };
+  const poApproved = poId ? await call(`/purchase/orders/${poId}/approve`, { method: 'POST' }) : { status: 0, body: {} };
+  const poPartial = poId ? await call(`/purchase/orders/${poId}/receive`, jsonPost({ lines: [{ skuId: sku.id, quantity: 2 }] })) : { status: 0, body: {} };
+  const poOver = poId ? await call(`/purchase/orders/${poId}/receive`, jsonPost({ lines: [{ skuId: sku.id, quantity: 4 }] })) : { status: 0, body: {} };
+  const poRest = poId ? await call(`/purchase/orders/${poId}/receive`, jsonPost({ lines: [{ skuId: sku.id, quantity: 3 }] })) : { status: 0, body: {} };
+  const receipts = poId ? await call(`/purchase/receipts?purchaseOrderId=${poId}&page=1&pageSize=20`) : { status: 0, body: {} };
+  const po2Created = supplierId ? await call('/purchase/orders', jsonPost({ supplierId, lines: [{ skuId: sku.id, quantity: 1 }] })) : { status: 0, body: {} };
+  const po2Id = po2Created.body.id;
+  const po2Submitted = po2Id ? await call(`/purchase/orders/${po2Id}/submit`, { method: 'POST' }) : { status: 0, body: {} };
+  const po2RejectEmpty = po2Id ? await call(`/purchase/orders/${po2Id}/reject`, jsonPost({ reason: '' })) : { status: 0, body: {} };
+  const po2Rejected = po2Id ? await call(`/purchase/orders/${po2Id}/reject`, jsonPost({ reason: '价格高于市场价' })) : { status: 0, body: {} };
+
   // 仪表盘汇总：只断言形状与下限——冒烟自身建了 2 单（1 已完成、1 已取消），
   // 其余绝对值会随种子变化，不写死
   const overview = await call('/dashboard/overview');
@@ -255,7 +273,16 @@ async function main() {
     auditGetNotLogged: auditAllAgain.body.total === auditAll.body.total,
     overviewTrend30: Array.isArray(overview.body.trend30) && overview.body.trend30.length === 30 && Array.isArray(overview.body.trend7) && overview.body.trend7.length === 7,
     reportGross: report.body.gross && Array.isArray(report.body.gross.rows) && typeof report.body.gross.totalAmount === 'number' && (report.body.gross.totalGross === null || typeof report.body.gross.totalGross === 'number'),
-    purchaseReport: purchaseReport.status === 200 && Array.isArray(purchaseReport.body.buckets) && purchaseReport.body.buckets.length === 6 && Array.isArray(purchaseReport.body.supplierRanking) && Array.isArray(purchaseReport.body.statusCounts) && purchaseReport.body.statusCounts.length === 4 && (purchaseReport.body.receivedRate === null || typeof purchaseReport.body.receivedRate === 'number'),
+    purchaseReport: purchaseReport.status === 200 && Array.isArray(purchaseReport.body.buckets) && purchaseReport.body.buckets.length === 6 && Array.isArray(purchaseReport.body.supplierRanking) && Array.isArray(purchaseReport.body.statusCounts) && purchaseReport.body.statusCounts.length === 7 && (purchaseReport.body.receivedRate === null || typeof purchaseReport.body.receivedRate === 'number'),
+    poSubmitted: poSubmitted.body.status === 'submitted',
+    poReceiveEarlyRejected: poReceiveEarly.status === 409 && poReceiveEarly.body.code === 'INVALID_STATE',
+    poApproved: poApproved.body.status === 'approved',
+    poPartial: poPartial.body.order && poPartial.body.order.status === 'partially_received' && poPartial.body.order.lines[0].receivedQty === 2 && poPartial.body.receipt && poPartial.body.receipt.receiptNo && poPartial.body.receipt.receiptNo.startsWith('GRN-') && poPartial.body.receipt.lines[0].quantity === 2,
+    poOverRejected: poOver.status === 409 && poOver.body.code === 'CONFLICT',
+    poReceived: poRest.body.order && poRest.body.order.status === 'received' && poRest.body.order.lines[0].receivedQty === 5,
+    receiptsListed: receipts.body.total === 2 && (receipts.body.items || []).every((r) => r.receiptNo && r.receiptNo.startsWith('GRN-')),
+    po2RejectEmpty: po2RejectEmpty.status === 400,
+    po2Rejected: po2Rejected.body.status === 'rejected' && po2Rejected.body.rejectReason === '价格高于市场价',
     skuCostSet: skuCostSet.body.cost && skuCostSet.body.cost.amount === 13000,
     skuCostCleared: skuCostCleared.body.cost === null,
   };

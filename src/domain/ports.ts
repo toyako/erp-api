@@ -2,6 +2,8 @@ import type {
   AuditEvent,
   AuditEventListQuery,
   Customer,
+  GoodsReceipt,
+  GoodsReceiptListQuery,
   InventoryLot,
   Invoice,
   PageQueryParams,
@@ -76,6 +78,9 @@ export abstract class DatabasePort {
   abstract listPurchaseOrders(params: PageQueryParams): Promise<Page<PurchaseOrder>>;
   abstract findPurchaseOrder(id: string): Promise<PurchaseOrder | null>;
   abstract savePurchaseOrder(order: PurchaseOrder): Promise<void>;
+  abstract listReceipts(params: PageQueryParams, query?: GoodsReceiptListQuery): Promise<Page<GoodsReceipt>>;
+  abstract findReceipt(id: string): Promise<GoodsReceipt | null>;
+  abstract saveReceipt(receipt: GoodsReceipt): Promise<void>;
   abstract listCustomers(params: PageQueryParams): Promise<Page<Customer>>;
   abstract findCustomer(id: string): Promise<Customer | null>;
   abstract saveCustomer(customer: Customer): Promise<void>;

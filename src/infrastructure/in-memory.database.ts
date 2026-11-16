@@ -3,6 +3,8 @@ import type {
   AuditEvent,
   AuditEventListQuery,
   Customer,
+  GoodsReceipt,
+  GoodsReceiptListQuery,
   InventoryLot,
   Invoice,
   PageQueryParams,
@@ -32,6 +34,7 @@ interface State {
   orders: SalesOrder[];
   suppliers: Supplier[];
   purchaseOrders: PurchaseOrder[];
+  receipts: GoodsReceipt[];
   customers: Customer[];
   rmas: Rma[];
   shipments: Shipment[];
@@ -93,6 +96,7 @@ function seed(): State {
     orders: [],
     suppliers: [],
     purchaseOrders: [],
+    receipts: [],
     customers: [],
     rmas,
     shipments: [],
@@ -233,6 +237,25 @@ export class InMemoryDatabase extends DatabasePort {
     const copy = { ...order };
     if (i >= 0) this.state.purchaseOrders[i] = copy;
     else this.state.purchaseOrders.push(copy);
+  }
+
+  async listReceipts(params: PageQueryParams, query?: GoodsReceiptListQuery) {
+    const list = query?.purchaseOrderId
+      ? this.state.receipts.filter((r) => r.purchaseOrderId === query.purchaseOrderId)
+      : this.state.receipts;
+    return pageOf(list.map((r) => ({ ...r, lines: r.lines.map((l) => ({ ...l })) })), params);
+  }
+
+  async findReceipt(id: string) {
+    const found = this.state.receipts.find((r) => r.id === id);
+    return found ? { ...found, lines: found.lines.map((l) => ({ ...l })) } : null;
+  }
+
+  async saveReceipt(receipt: GoodsReceipt) {
+    const i = this.state.receipts.findIndex((r) => r.id === receipt.id);
+    const copy = { ...receipt, lines: receipt.lines.map((l) => ({ ...l })) };
+    if (i >= 0) this.state.receipts[i] = copy;
+    else this.state.receipts.push(copy);
   }
 
   async listCustomers(params: PageQueryParams) {

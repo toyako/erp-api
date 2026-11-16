@@ -14,9 +14,12 @@ import {
   CreateStocktakeRequestSchema,
   CreateSupplierRequestSchema,
   CreateTransferRequestSchema,
+  GoodsReceiptListQuerySchema,
   LoginRequestSchema,
   MovementListQuerySchema,
   PageQueryParamsSchema,
+  ReceivePurchaseOrderRequestSchema,
+  RejectPurchaseOrderRequestSchema,
   RejectRmaRequestSchema,
   RejectTransferRequestSchema,
   ReportQuerySchema,
@@ -40,9 +43,12 @@ import {
   type CreateStocktakeRequest,
   type CreateSupplierRequest,
   type CreateTransferRequest,
+  type GoodsReceiptListQuery,
   type LoginRequest,
   type MovementListQuery,
   type PageQueryParams,
+  type ReceivePurchaseOrderRequest,
+  type RejectPurchaseOrderRequest,
   type RejectRmaRequest,
   type RejectTransferRequest,
   type ReportQuery,
@@ -257,14 +263,45 @@ export class ErpController {
     return this.purchase.submitPurchaseOrder(id);
   }
 
+  @Post('purchase/orders/:id/approve')
+  approvePurchaseOrder(@Param('id') id: string) {
+    return this.purchase.approvePurchaseOrder(id);
+  }
+
+  @Post('purchase/orders/:id/reject')
+  rejectPurchaseOrder(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(RejectPurchaseOrderRequestSchema)) body: RejectPurchaseOrderRequest,
+  ) {
+    return this.purchase.rejectPurchaseOrder(id, body.reason);
+  }
+
   @Post('purchase/orders/:id/receive')
-  receivePurchaseOrder(@Param('id') id: string) {
-    return this.purchase.receivePurchaseOrder(id);
+  receivePurchaseOrder(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ReceivePurchaseOrderRequestSchema)) body: ReceivePurchaseOrderRequest,
+  ) {
+    return this.purchase.receivePurchaseOrder(id, body);
   }
 
   @Post('purchase/orders/:id/cancel')
   cancelPurchaseOrder(@Param('id') id: string) {
     return this.purchase.cancelPurchaseOrder(id);
+  }
+
+  @Get('purchase/receipts')
+  purchaseReceipts(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+    @Query(new ZodValidationPipe(GoodsReceiptListQuerySchema)) filter: GoodsReceiptListQuery,
+  ) {
+    return this.purchase.listReceipts(query, filter.purchaseOrderId);
+  }
+
+  @Get('purchase/receipts/:id')
+  async purchaseReceipt(@Param('id') id: string) {
+    const receipt = await this.purchase.findReceipt(id);
+    if (!receipt) throw new DomainError('NOT_FOUND', `入库单 ${id} 不存在`, 404);
+    return receipt;
   }
 
   @Get('iam/principals')

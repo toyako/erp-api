@@ -4,6 +4,8 @@ import type {
   AuditEvent,
   AuditEventListQuery,
   Customer,
+  GoodsReceipt,
+  GoodsReceiptListQuery,
   InventoryLot,
   Invoice,
   OrderLine,
@@ -918,9 +920,10 @@ export class PrismaDatabase extends DatabasePort {
         status: order.status,
         amount: order.total.amount,
         currency: order.total.currency,
+        rejectReason: order.rejectReason,
         createdAt: new Date(order.createdAt),
       },
-      update: { status: order.status, amount: order.total.amount },
+      update: { status: order.status, amount: order.total.amount, rejectReason: order.rejectReason },
     });
     // schema 未定义反向关系字段，行项单独写入（事务超时已放宽到 20s）
     await this.client.purchaseOrderLine.deleteMany({ where: { orderId: order.id } });
@@ -930,8 +933,49 @@ export class PrismaDatabase extends DatabasePort {
         orderId: order.id,
         skuId: line.skuId,
         quantity: line.quantity,
+        receivedQty: line.receivedQty,
         unitAmount: line.unitPrice.amount,
         currency: line.unitPrice.currency,
+      })),
+    });
+  }
+
+  async listReceipts(params: PageQueryParams, query?: GoodsReceiptListQuery) {
+    const where = query?.purchaseOrderId ? { purchaseOrderId: query.purchaseOrderId } : {};
+    const [rows, total] = await Promise.all([
+      this.client.goodsReceipt.findMany({ where, orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.goodsReceipt.count({ where }),
+    ]);
+    return toPage(await Promise.all(rows.map((row) => this.hydrateReceipt(row))), total, params);
+  }
+
+  async findReceipt(id: string) {
+    const row = await this.client.goodsReceipt.findUnique({ where: { id } });
+    return row ? this.hydrateReceipt(row) : null;
+  }
+
+  async saveReceipt(receipt: GoodsReceipt) {
+    await this.client.goodsReceipt.upsert({
+      where: { id: receipt.id },
+      create: {
+        id: receipt.id,
+        tenantId: receipt.tenantId,
+        receiptNo: receipt.receiptNo,
+        purchaseOrderId: receipt.purchaseOrderId,
+        orderNo: receipt.orderNo,
+        receivedAt: new Date(receipt.receivedAt),
+        createdAt: new Date(receipt.createdAt),
+      },
+      update: {},
+    });
+    await this.client.goodsReceiptLine.deleteMany({ where: { receiptId: receipt.id } });
+    await this.client.goodsReceiptLine.createMany({
+      data: receipt.lines.map((line) => ({
+        id: line.id,
+        receiptId: receipt.id,
+        skuId: line.skuId,
+        quantity: line.quantity,
+        batchCode: line.batchCode,
       })),
     });
   }
@@ -988,6 +1032,7 @@ export class PrismaDatabase extends DatabasePort {
     status: string;
     amount: number;
     currency: string;
+    rejectReason: string | null;
     createdAt: Date;
   }): Promise<PurchaseOrder> {
     const lines = await this.client.purchaseOrderLine.findMany({ where: { orderId: row.id } });
@@ -1002,10 +1047,39 @@ export class PrismaDatabase extends DatabasePort {
           id: line.id,
           skuId: line.skuId,
           quantity: line.quantity,
+          receivedQty: line.receivedQty,
           unitPrice: { amount: line.unitAmount, currency: line.currency },
         }),
       ),
       total: { amount: row.amount, currency: row.currency },
+      rejectReason: row.rejectReason,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  private async hydrateReceipt(row: {
+    id: string;
+    tenantId: string;
+    receiptNo: string;
+    purchaseOrderId: string;
+    orderNo: string;
+    receivedAt: Date;
+    createdAt: Date;
+  }): Promise<GoodsReceipt> {
+    const lines = await this.client.goodsReceiptLine.findMany({ where: { receiptId: row.id } });
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      receiptNo: row.receiptNo,
+      purchaseOrderId: row.purchaseOrderId,
+      orderNo: row.orderNo,
+      lines: lines.map((line) => ({
+        id: line.id,
+        skuId: line.skuId,
+        quantity: line.quantity,
+        batchCode: line.batchCode,
+      })),
+      receivedAt: row.receivedAt.toISOString(),
       createdAt: row.createdAt.toISOString(),
     };
   }

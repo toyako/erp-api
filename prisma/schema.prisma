@@ -165,14 +165,15 @@ model Supplier {
 
 /// 采购订单：draft -> submitted -> received / cancelled
 model PurchaseOrder {
-  id         String   @id @default(uuid())
-  tenantId   String   @map("tenant_id")
-  orderNo    String   @unique @map("order_no")
-  supplierId String   @map("supplier_id")
-  status     String
-  amount     Int
-  currency   String   @db.Char(3)
-  createdAt  DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  orderNo      String   @unique @map("order_no")
+  supplierId   String   @map("supplier_id")
+  status       String
+  amount       Int
+  currency     String   @db.Char(3)
+  rejectReason String?  @map("reject_reason")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   @@index([tenantId, status])
   @@map("purchase_orders")
@@ -183,11 +184,37 @@ model PurchaseOrderLine {
   orderId    String @map("order_id")
   skuId      String @map("sku_id")
   quantity   Int
+  receivedQty Int    @default(0) @map("received_qty")
   unitAmount Int    @map("unit_amount")
   currency   String @db.Char(3)
 
   @@index([orderId])
   @@map("purchase_order_lines")
+}
+
+/// 采购入库单：每次入库动作建一张，记录本次实际收到的行与批次
+model GoodsReceipt {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  receiptNo       String   @unique @map("receipt_no")
+  purchaseOrderId String   @map("purchase_order_id")
+  orderNo         String   @map("order_no")
+  receivedAt      DateTime @map("received_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, purchaseOrderId])
+  @@map("purchase_receipts")
+}
+
+model GoodsReceiptLine {
+  id         String @id @default(uuid())
+  receiptId  String @map("receipt_id")
+  skuId      String @map("sku_id")
+  quantity   Int
+  batchCode  String @map("batch_code")
+
+  @@index([receiptId])
+  @@map("purchase_receipt_lines")
 }
 
 /// 售后退货：一单只针对一个订单里一个 SKU 的数量
