@@ -1,0 +1,189 @@
+import { describe, expect, it } from "vitest"
+import { DashboardService } from "../src/application/dashboard.service"
+import { PurchaseService } from "../src/application/purchase.service"
+import { SalesService, TENANT_ID } from "../src/application/sales.service"
+import { InMemoryDatabase } from "../src/infrastructure/in-memory.database"
+import { MockPaymentGateway } from "../src/infrastructure/mock-payment.gateway"
+
+function makeDashboard() {
+  const db = new InMemoryDatabase()
+  const sales = new SalesService(db, new MockPaymentGateway())
+  const purchase = new PurchaseService(db)
+  return { db, sales, purchase, dashboard: new DashboardService(db) }
+}
+
+async function firstSku(db: InMemoryDatabase) {
+  const sku = (await db.listSkus({ page: 1, pageSize: 20 })).items[0]
+  if (!sku) throw new Error("演示数据缺少 SKU")
+  return sku
+}
+
+async function secondSku(db: InMemoryDatabase) {
+  const sku = (await db.listSkus({ page: 1, pageSize: 20 })).items[1]
+  if (!sku) throw new Error("演示数据缺少第二个 SKU")
+  return sku
+}
+
+/** 5 张订单：fulfilled / confirmed / draft / paid / cancelled 各一 */
+async function seedOrders(sales: SalesService, db: InMemoryDatabase) {
+  const a = await firstSku(db)
+  const b = await secondSku(db)
+  const fulfilled = await sales.createOrder({ lines: [{ skuId: a.id, quantity: 2 }] })
+  await sales.confirmOrder(fulfilled.id)
+  await sales.payOrder(fulfilled.id)
+  await sales.fulfillOrder(fulfilled.id)
+  const confirmed = await sales.createOrder({ lines: [{ skuId: b.id, quantity: 1 }] })
+  await sales.confirmOrder(confirmed.id)
+  const draft = await sales.createOrder({ lines: [{ skuId: a.id, quantity: 1 }] })
+  const paid = await sales.createOrder({ lines: [{ skuId: b.id, quantity: 1 }] })
+  await sales.confirmOrder(paid.id)
+  await sales.payOrder(paid.id)
+  const cancelled = await sales.createOrder({ lines: [{ skuId: a.id, quantity: 1 }] })
+  await sales.cancelOrder(cancelled.id)
+  return { fulfilled, confirmed, draft, paid, cancelled }
+}
+
+async function seedPurchaseOrders(purchase: PurchaseService, db: InMemoryDatabase) {
+  const a = await firstSku(db)
+  const b = await secondSku(db)
+  await db.saveSupplier({ id: "00000000-0000-4000-8000-000000000501", tenantId: TENANT_ID, code: "SUP-001", name: "测试供应商", rating: 5, enabled: true })
+  const supplierId = "00000000-0000-4000-8000-000000000501"
+  const draftPo = await purchase.createPurchaseOrder({ supplierId, lines: [{ skuId: a.id, quantity: 1 }] })
+  const receivedPo = await purchase.createPurchaseOrder({ supplierId, lines: [{ skuId: b.id, quantity: 1 }] })
+  await purchase.submitPurchaseOrder(receivedPo.id)
+  await purchase.receivePurchaseOrder(receivedPo.id)
+  const submittedPo = await purchase.createPurchaseOrder({ supplierId, lines: [{ skuId: a.id, quantity: 1 }] })
+  await purchase.submitPurchaseOrder(submittedPo.id)
+  return { draftPo, receivedPo, submittedPo }
+}
+
+describe("DashboardService", () => {
+  it("概览求和与排行、趋势、低库存、首个 SKU", async () => {
+    const { sales, db, dashboard } = makeDashboard()
+    await seedOrders(sales, db)
+    const o = await dashboard.getOverview()
+
+    expect(o.salesAmount).toBe(159400)
+    expect(o.orderCount).toBe(5)
+    expect(o.fulfilledCount).toBe(1)
+    expect(o.availableStock).toBe(145)
+    expect(o.reservedStock).toBe(3)
+    expect(o.warningCount).toBe(0)
+    expect(o.statusDist).toHaveLength(5)
+    expect(o.statusDist.find((s) => s.status === "draft")?.count).toBe(1)
+    expect(o.trend7).toHaveLength(7)
+    expect(o.trend7.reduce((n, d) => n + d.amount, 0)).toBe(159400)
+    expect(o.trend7[6].amount).toBe(159400)
+    expect(o.ranking).toHaveLength(2)
+    expect(o.ranking[0]).toMatchObject({ code: "SKU-001", qty: 4 })
+    expect(o.ranking[1]).toMatchObject({ code: "SKU-002", qty: 2 })
+    expect(o.lowStock.map((l) => l.batchCode)).toEqual(["BATCH-002", "BATCH-001"])
+    expect(o.lowStock[0]).toMatchObject({ skuCode: "SKU-002", availableQty: 48 })
+    expect(o.firstSku).toMatchObject({ code: "SKU-001" })
+  })
+
+  it("报表桶求和、排行金额与环比、周转天数、滞销", async () => {
+    const { sales, db, dashboard } = makeDashboard()
+    await seedOrders(sales, db)
+    const r = await dashboard.getReport("7d")
+
+    expect(r.range).toBe("7d")
+    expect(r.buckets).toHaveLength(6)
+    expect(r.buckets.reduce((n, b) => n + b.amount, 0)).toBe(139500)
+    expect(r.buckets[3].amount).toBe(139500)
+    expect(r.ranking).toHaveLength(2)
+    expect(r.ranking[0]).toMatchObject({ code: "SKU-002", qty: 2, amount: 79800, change: null })
+    expect(r.ranking[1]).toMatchObject({ code: "SKU-001", qty: 3, amount: 59700, change: null })
+    expect(r.turnover).toHaveLength(2)
+    expect(r.turnover[0]).toMatchObject({ name: "SKU-002 · 专业版", stock: 50, days: 175, pct: 77 })
+    expect(r.turnover[1]).toMatchObject({ name: "SKU-001 · 标准版", stock: 98, days: 228.7, pct: 100 })
+    expect(r.slow).toEqual([])
+
+    const r30 = await dashboard.getReport("30d")
+    expect(r30.buckets.reduce((n, b) => n + b.amount, 0)).toBe(139500)
+    const rm = await dashboard.getReport("month")
+    expect(rm.buckets.reduce((n, b) => n + b.amount, 0)).toBe(139500)
+  })
+
+  it("待办派生、过滤与分页", async () => {
+    const { sales, db, dashboard } = makeDashboard()
+    const { paid, confirmed, draft } = await seedOrders(sales, db)
+
+    const all = await dashboard.listTodos({ page: 1, pageSize: 20 })
+    expect(all.total).toBe(5)
+    expect(all.items.slice(0, 3).every((i) => !i.done)).toBe(true)
+    expect(all.items.slice(3).every((i) => i.done)).toBe(true)
+    expect(all.items.find((i) => i.id === `ship-${paid.id}`)).toMatchObject({ type: "order", cls: "blue", action: "去发货" })
+    expect(all.items.find((i) => i.id === `pay-${confirmed.id}`)).toMatchObject({ type: "order", cls: "orange", action: "去收款" })
+    expect(all.items.find((i) => i.id === `confirm-${draft.id}`)).toMatchObject({ type: "order", cls: "orange", action: "去确认" })
+
+    expect((await dashboard.listTodos({ page: 1, pageSize: 20, type: "order" })).total).toBe(3)
+    expect((await dashboard.listTodos({ page: 1, pageSize: 20, type: "notice" })).total).toBe(2)
+    expect((await dashboard.listTodos({ page: 1, pageSize: 20, status: "pending" })).total).toBe(3)
+    expect((await dashboard.listTodos({ page: 1, pageSize: 20, status: "done" })).total).toBe(2)
+    expect((await dashboard.listTodos({ page: 1, pageSize: 20, keyword: "待发货" })).total).toBe(1)
+
+    const p1 = await dashboard.listTodos({ page: 1, pageSize: 2 })
+    const p3 = await dashboard.listTodos({ page: 3, pageSize: 2 })
+    expect(p1.items).toHaveLength(2)
+    expect(p1.total).toBe(5)
+    expect(p3.items).toHaveLength(1)
+  })
+
+  it("应收应付四数", async () => {
+    const { sales, purchase, db, dashboard } = makeDashboard()
+    await seedOrders(sales, db)
+    await seedPurchaseOrders(purchase, db)
+    const f = await dashboard.getFinanceSummary()
+
+    expect(f.receivable).toBe(39900)
+    expect(f.payable).toBe(39800)
+    expect(f.receivedThisMonth).toBe(79700)
+    expect(f.paidThisMonth).toBe(39900)
+  })
+
+  it("应收行只含已确认及以上状态，已结清与未核销分开", async () => {
+    const { sales, db, dashboard } = makeDashboard()
+    const { fulfilled, confirmed, paid } = await seedOrders(sales, db)
+    const page = await dashboard.listReceivables({ page: 1, pageSize: 20 })
+
+    expect(page.total).toBe(3)
+    const byId = new Map(page.items.map((r) => [r.id, r]))
+    expect(byId.get(fulfilled.id)).toMatchObject({ settled: 39800, unsettled: 0 })
+    expect(byId.get(confirmed.id)).toMatchObject({ settled: 0, unsettled: 39900 })
+    expect(byId.get(paid.id)).toMatchObject({ settled: 39900, unsettled: 0 })
+    expect(page.items.every((r) => r.currency === "CNY")).toBe(true)
+
+    const p2 = await dashboard.listReceivables({ page: 2, pageSize: 2 })
+    expect(p2.items).toHaveLength(1)
+    expect(p2.total).toBe(3)
+  })
+
+  it("最近活动取前 5 单", async () => {
+    const { sales, db, dashboard } = makeDashboard()
+    const { fulfilled } = await seedOrders(sales, db)
+    const logs = await dashboard.getRecentActivity()
+
+    expect(logs).toHaveLength(5)
+    expect(logs.every((l) => l.text.startsWith("创建销售订单 ERP-"))).toBe(true)
+    expect(logs.find((l) => l.text === `创建销售订单 ${fulfilled.orderNo}`)).toBeDefined()
+  })
+
+  it("流水派生：履约出库、未履约占用、取消跳过，过滤与分页", async () => {
+    const { sales, db, dashboard } = makeDashboard()
+    await seedOrders(sales, db)
+
+    const all = await dashboard.listMovements({ page: 1, pageSize: 20 })
+    expect(all.total).toBe(4)
+    const outbound = all.items.filter((r) => r.type === "outbound")
+    expect(outbound).toHaveLength(1)
+    expect(outbound[0]).toMatchObject({ batch: "BATCH-001", skuName: "SKU-001 · 标准版", delta: -2 })
+    expect(all.items.filter((r) => r.type === "reserve")).toHaveLength(3)
+
+    expect((await dashboard.listMovements({ page: 1, pageSize: 20, type: "outbound" })).total).toBe(1)
+    expect((await dashboard.listMovements({ page: 1, pageSize: 20, keyword: "BATCH-002" })).total).toBe(2)
+    const p2 = await dashboard.listMovements({ page: 2, pageSize: 3 })
+    expect(p2.items).toHaveLength(1)
+    expect(p2.total).toBe(4)
+  })
+})

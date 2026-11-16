@@ -59,6 +59,16 @@ async function main() {
   const cancelled = id2 ? await call(`/sales/orders/${id2}/cancel`, { method: 'POST' }) : { status: 0, body: {} };
   const afterCancel = await call('/inventory/lots');
 
+  // 仪表盘汇总：只断言形状与下限——冒烟自身建了 2 单（1 已完成、1 已取消），
+  // 其余绝对值会随种子变化，不写死
+  const overview = await call('/dashboard/overview');
+  const report = await call('/dashboard/report?range=7d');
+  const financeSummary = await call('/dashboard/finance-summary');
+  const todos = await call('/dashboard/todos?page=1&pageSize=2');
+  const receivables = await call('/dashboard/receivables?page=1&pageSize=2');
+  const activity = await call('/dashboard/recent-activity');
+  const movements = await call('/dashboard/movements?page=1&pageSize=2');
+
   const lotBefore = (before.body.items || [])[0] || {};
   const lotAfter = (after.body.items || [])[0] || {};
   const lotRolled = (afterRollback.body.items || [])[0] || {};
@@ -83,6 +93,13 @@ async function main() {
     fulfillConsumed: lotFulfilled.totalQty === lotBefore.totalQty - 2 && lotFulfilled.reservedQty === (lotBefore.reservedQty || 0),
     orderCancelled: cancelled.body.status === 'cancelled',
     cancelReleased: lotCancelled.reservedQty === lotFulfilled.reservedQty && lotCancelled.availableQty === lotFulfilled.availableQty && lotCancelled.totalQty === lotFulfilled.totalQty,
+    dashboardOverview: overview.status === 200 && overview.body.orderCount >= 2 && typeof overview.body.salesAmount === 'number' && (overview.body.trend7 || []).length === 7 && Array.isArray(overview.body.ranking) && Boolean(overview.body.firstSku && overview.body.firstSku.code),
+    dashboardReport: report.status === 200 && report.body.range === '7d' && (report.body.buckets || []).length === 6 && (report.body.buckets || []).reduce((n, b) => n + b.amount, 0) > 0,
+    dashboardFinance: financeSummary.status === 200 && ['receivable', 'payable', 'receivedThisMonth', 'paidThisMonth'].every((k) => typeof financeSummary.body[k] === 'number') && financeSummary.body.receivedThisMonth >= 39800,
+    dashboardTodosPaged: todos.status === 200 && todos.body.total >= 2 && (todos.body.items || []).length <= 2,
+    dashboardReceivablesPaged: receivables.status === 200 && receivables.body.total >= 1 && (receivables.body.items || []).length >= 1,
+    dashboardActivity: activity.status === 200 && Array.isArray(activity.body) && activity.body.length >= 2,
+    dashboardMovementsPaged: movements.status === 200 && movements.body.total >= 1 && (movements.body.items || []).length <= 2,
   };
 
   console.log(JSON.stringify({ checks, sample: { orderTotal: created.body.total, reservedQty: lotAfter.reservedQty } }, null, 2));

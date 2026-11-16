@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { IamService } from './application/iam.service';
+import { DashboardService } from './application/dashboard.service';
 import { PurchaseService } from './application/purchase.service';
 import { SalesService } from './application/sales.service';
 import { DatabasePort, PaymentGatewayPort } from './domain/ports';
@@ -23,6 +24,7 @@ function createDatabase(): DatabasePort {
     IamService,
     SalesService,
     PurchaseService,
+    DashboardService,
     { provide: DatabasePort, useFactory: createDatabase },
     { provide: PaymentGatewayPort, useClass: MockPaymentGateway },
   ],

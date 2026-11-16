@@ -5,20 +5,27 @@ import {
   CreatePurchaseOrderRequestSchema,
   CreateSupplierRequestSchema,
   LoginRequestSchema,
+  MovementListQuerySchema,
   PageQueryParamsSchema,
+  ReportQuerySchema,
+  TodoListQuerySchema,
   UpdateSkuRequestSchema,
   UpdateSupplierRequestSchema,
   type CreateOrderRequest,
   type CreatePurchaseOrderRequest,
   type CreateSupplierRequest,
   type LoginRequest,
+  type MovementListQuery,
   type PageQueryParams,
+  type ReportQuery,
   type Sku,
   type Supplier,
+  type TodoListQuery,
   type UpdateSkuRequest,
   type UpdateSupplierRequest,
 } from '@erp/contracts';
 import { IamService } from '../../application/iam.service';
+import { DashboardService } from '../../application/dashboard.service';
 import { PurchaseService } from '../../application/purchase.service';
 import { SalesService, TENANT_ID } from '../../application/sales.service';
 import { DatabasePort, DomainError } from '../../domain/ports';
@@ -30,12 +37,57 @@ export class ErpController {
     private readonly iam: IamService,
     private readonly sales: SalesService,
     private readonly purchase: PurchaseService,
+    private readonly dashboard: DashboardService,
     private readonly db: DatabasePort,
   ) {}
 
   @Get('health')
   health() {
     return { status: 'ok', service: 'erp-api', mode: process.env.DESKTOP_MODE ?? 'demo' };
+  }
+
+  /** 仪表盘汇总：聚合页不再拉全量列表 */
+  @Get('dashboard/overview')
+  overview() {
+    return this.dashboard.getOverview();
+  }
+
+  @Get('dashboard/report')
+  report(
+    @Query(new ZodValidationPipe(ReportQuerySchema)) query: ReportQuery,
+  ) {
+    return this.dashboard.getReport(query.range);
+  }
+
+  @Get('dashboard/todos')
+  todos(
+    @Query(new ZodValidationPipe(TodoListQuerySchema)) query: TodoListQuery,
+  ) {
+    return this.dashboard.listTodos(query);
+  }
+
+  @Get('dashboard/finance-summary')
+  financeSummary() {
+    return this.dashboard.getFinanceSummary();
+  }
+
+  @Get('dashboard/receivables')
+  receivables(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.dashboard.listReceivables(query);
+  }
+
+  @Get('dashboard/recent-activity')
+  recentActivity() {
+    return this.dashboard.getRecentActivity();
+  }
+
+  @Get('dashboard/movements')
+  movements(
+    @Query(new ZodValidationPipe(MovementListQuerySchema)) query: MovementListQuery,
+  ) {
+    return this.dashboard.listMovements(query);
   }
 
   @Post('auth/login')
