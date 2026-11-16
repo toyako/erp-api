@@ -7,7 +7,10 @@ services:
     # 1) 契约仓库并列 clone 到 ../erp-contracts（package.json 用 file:../erp-contracts）
     # 2) NODE_ENV=production 下 pnpm 会跳过 devDeps，而 prisma/typescript 都在 devDeps
     buildCommand: rm -rf ../erp-contracts && git clone --depth 1 https://github.com/toyako/erp-contracts.git ../erp-contracts && pnpm install --prod=false && pnpm exec prisma generate && pnpm build
-    startCommand: sh -c "pnpm exec prisma migrate deploy && node dist/main.js"
+    # 一次性：启动时先清库重跑种子（2026-11-16 演示数据重建；Render 免费版无 Shell，
+    # 只能借启动命令跑一次）。验证通过后立即改回正常启动命令。
+    # 注意：reset 失败会直接拦住本次部署（&&），旧版继续服务，不会带半清的库上线。
+    startCommand: sh -c "DEMO_RESET_CONFIRMED=1 pnpm exec tsx prisma/reset-demo.ts && pnpm exec prisma migrate deploy && node dist/main.js"
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
