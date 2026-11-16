@@ -14,6 +14,9 @@ import { TENANT_ID } from '../../application/sales.service';
  * - action 为 `METHOD + path`（去掉全局前缀 /api），如 'POST /customers'。
  * - targetType 从 path 首段推导：purchase/orders → 'purchase-orders'、
  *   sales/orders → 'sales-orders'，其余取首段。
+ * - targetId 优先取响应体的业务单号（rmaNo / transferNo / stocktakeNo /
+ *   orderNo / code），取不到时取 id，再取不到为 null——操作日志的
+ *   “单据号”列直接显示它，不应显示内部 UUID。
  * - targetId 从响应体 id 取；detail 为请求体摘要（JSON 字符串，截断 500 字，
  *   password 类字段递归脱敏为 ***）。
  * - 写审计失败不得影响主响应：fire-and-forget + catch 吞错。
@@ -53,6 +56,18 @@ function entityOf(path: string): string {
   return seg[0] ?? 'unknown';
 }
 
+/** 业务单号：响应体里的 rmaNo / transferNo / stocktakeNo / orderNo / code，取不到时退回 id */
+function docNoOf(data: unknown): string | null {
+  if (data && typeof data === 'object') {
+    const body = data as Record<string, unknown>;
+    for (const key of ['rmaNo', 'transferNo', 'stocktakeNo', 'orderNo', 'code']) {
+      if (typeof body[key] === 'string' && (body[key] as string).trim()) return body[key] as string;
+    }
+    if (typeof body.id === 'string' && (body.id as string).trim()) return body.id as string;
+  }
+  return null;
+}
+
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
   constructor(private readonly db: DatabasePort) {}
@@ -77,10 +92,7 @@ export class AuditInterceptor implements NestInterceptor {
     const headerActor = req.headers?.['x-actor'];
     const actor = typeof headerActor === 'string' && headerActor.trim() ? headerActor.trim() : 'admin';
     const detail = JSON.stringify(redact(req.body ?? {})).slice(0, 500);
-    const entityId =
-      data && typeof data === 'object' && typeof (data as { id?: unknown }).id === 'string'
-        ? (data as { id: string }).id
-        : null;
+    const entityId = docNoOf(data);
     await this.db.saveAuditEvent({
       id: randomUUID(),
       tenantId: TENANT_ID,

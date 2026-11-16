@@ -120,6 +120,29 @@ describe("AuditInterceptor", () => {
     ])
   })
 
+  it("单据号优先取业务单号而非内部 id：退货取 rmaNo，客户取 code", async () => {
+    const { db, interceptor } = makeInterceptor()
+    await lastValueFrom(
+      interceptor.intercept(
+        mockContext({ method: "POST", path: "/api/rmas/00000000-0000-4000-8000-000000000001/reject", headers: {}, body: { reason: "无质量问题" } }),
+        mockHandler({ id: "00000000-0000-4000-8000-000000000001", rmaNo: "RMA-MWJ14CGK" }),
+      ),
+    )
+    await lastValueFrom(
+      interceptor.intercept(
+        mockContext({ method: "POST", path: "/api/customers", headers: {}, body: { code: "CUST-001", name: "华东贸易有限公司" } }),
+        mockHandler({ id: "00000000-0000-4000-8000-000000000002", code: "CUST-001" }),
+      ),
+    )
+    await settle()
+
+    const page = await db.listAuditEvents({ page: 1, pageSize: 20 })
+    expect(page.total).toBe(2)
+    const byAction = new Map(page.items.map((e) => [e.action, e.targetId]))
+    expect(byAction.get("POST /rmas/00000000-0000-4000-8000-000000000001/reject")).toBe("RMA-MWJ14CGK")
+    expect(byAction.get("POST /customers")).toBe("CUST-001")
+  })
+
   it("sales/orders 与 purchase/orders 的对象名取业务名而非首段", async () => {
     const { db, interceptor } = makeInterceptor()
     await lastValueFrom(
