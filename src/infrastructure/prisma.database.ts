@@ -347,6 +347,25 @@ function toPage<T>(items: T[], total: number, params: PageQueryParams): Page<T> 
   return { items, total, page: params.page, pageSize: params.pageSize };
 }
 
+function toPrice(row: {
+  id: string;
+  skuId: string;
+  channelCode: string;
+  amount: number;
+  currency: string;
+  effectiveFrom: Date;
+  effectiveTo: Date | null;
+}): PriceList {
+  return {
+    id: row.id,
+    skuId: row.skuId,
+    channelCode: row.channelCode,
+    price: { amount: row.amount, currency: row.currency },
+    effectiveFrom: row.effectiveFrom.toISOString(),
+    ...(row.effectiveTo ? { effectiveTo: row.effectiveTo.toISOString() } : {}),
+  };
+}
+
 function toPriceTier(row: {
   id: string;
   tenantId: string;
