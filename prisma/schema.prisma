@@ -187,10 +187,55 @@ model Customer {
   phone     String?
   level     String   @default("regular")
   enabled   Boolean  @default(true)
+  balanceAmount   Int    @default(0) @map("balance_amount")
+  balanceCurrency String @default("CNY") @map("balance_currency")
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([tenantId])
   @@map("customers")
+}
+
+/// 等级规则：累计消费达到 minSpent 即升到该等级
+model LevelRule {
+  id             String @id @default(uuid())
+  tenantId       String @map("tenant_id")
+  level          String
+  minSpentAmount Int    @map("min_spent_amount")
+  minSpentCurrency String @default("CNY") @map("min_spent_currency")
+
+  @@unique([tenantId, level])
+  @@map("level_rules")
+}
+
+/// 客户跟进记录
+model CustomerFollowup {
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  customerId String    @map("customer_id")
+  content    String
+  nextAt     DateTime? @map("next_at")
+  done       Boolean   @default(false)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([customerId])
+  @@map("customer_followups")
+}
+
+/// 余额流水：充值 topup / 余额支付 consume
+model CustomerBalanceTx {
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  customerId            String   @map("customer_id")
+  kind                  String
+  amount                Int
+  amountCurrency        String   @default("CNY") @map("amount_currency")
+  balanceAfter          Int      @map("balance_after")
+  balanceAfterCurrency  String   @default("CNY") @map("balance_after_currency")
+  remark                String?
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@index([customerId])
+  @@map("customer_balance_txs")
 }
 
 /// 供应商档案（采购上下文）

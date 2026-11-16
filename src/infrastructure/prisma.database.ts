@@ -3,13 +3,18 @@ import { randomUUID } from 'node:crypto';
 import type {
   AuditEvent,
   AuditEventListQuery,
+  BalanceTransaction,
+  BalanceTransactionListQuery,
   Category,
   CategoryTreeNode,
   Customer,
+  CustomerFollowup,
+  CustomerFollowupListQuery,
   GoodsReceipt,
   GoodsReceiptListQuery,
   InventoryLot,
   Invoice,
+  LevelRule,
   OrderLine,
   PageQueryParams,
   PriceList,
@@ -142,6 +147,8 @@ function toCustomer(row: {
   phone: string | null;
   level: string;
   enabled: boolean;
+  balanceAmount: number;
+  balanceCurrency: string;
   createdAt: Date;
 }): Customer {
   return {
@@ -154,6 +161,66 @@ function toCustomer(row: {
     enabled: row.enabled,
     // 累计消费不在库里存，由 CustomerService 聚合订单算出
     totalSpent: { amount: 0, currency: 'CNY' },
+    balance: { amount: row.balanceAmount, currency: row.balanceCurrency },
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function toLevelRule(row: {
+  id: string;
+  tenantId: string;
+  level: string;
+  minSpentAmount: number;
+  minSpentCurrency: string;
+}): LevelRule {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    level: row.level as LevelRule['level'],
+    minSpent: { amount: row.minSpentAmount, currency: row.minSpentCurrency },
+  };
+}
+
+function toFollowup(row: {
+  id: string;
+  tenantId: string;
+  customerId: string;
+  content: string;
+  nextAt: Date | null;
+  done: boolean;
+  createdAt: Date;
+}): CustomerFollowup {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    customerId: row.customerId,
+    content: row.content,
+    nextAt: row.nextAt ? row.nextAt.toISOString() : null,
+    done: row.done,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function toBalanceTx(row: {
+  id: string;
+  tenantId: string;
+  customerId: string;
+  kind: string;
+  amount: number;
+  amountCurrency: string;
+  balanceAfter: number;
+  balanceAfterCurrency: string;
+  remark: string | null;
+  createdAt: Date;
+}): BalanceTransaction {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    customerId: row.customerId,
+    kind: row.kind as BalanceTransaction['kind'],
+    amount: { amount: row.amount, currency: row.amountCurrency },
+    balanceAfter: { amount: row.balanceAfter, currency: row.balanceAfterCurrency },
+    remark: row.remark,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -830,13 +897,99 @@ export class PrismaDatabase extends DatabasePort {
         phone: customer.phone,
         level: customer.level,
         enabled: customer.enabled,
+        balanceAmount: customer.balance.amount,
+        balanceCurrency: customer.balance.currency,
       },
       update: {
         name: customer.name,
         phone: customer.phone,
         level: customer.level,
         enabled: customer.enabled,
+        balanceAmount: customer.balance.amount,
+        balanceCurrency: customer.balance.currency,
       },
+    });
+  }
+
+  async listLevelRules() {
+    const rows = await this.client.levelRule.findMany({ orderBy: { minSpentAmount: 'asc' } });
+    return rows.map(toLevelRule);
+  }
+
+  async saveLevelRule(rule: LevelRule) {
+    await this.client.levelRule.upsert({
+      where: { id: rule.id },
+      create: {
+        id: rule.id,
+        tenantId: rule.tenantId,
+        level: rule.level,
+        minSpentAmount: rule.minSpent.amount,
+        minSpentCurrency: rule.minSpent.currency,
+      },
+      update: {
+        minSpentAmount: rule.minSpent.amount,
+        minSpentCurrency: rule.minSpent.currency,
+      },
+    });
+  }
+
+  async listFollowups(params: PageQueryParams, query?: CustomerFollowupListQuery) {
+    const where = query?.customerId ? { customerId: query.customerId } : {};
+    const [rows, total] = await Promise.all([
+      this.client.customerFollowup.findMany({ where, orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.customerFollowup.count({ where }),
+    ]);
+    return toPage(rows.map(toFollowup), total, params);
+  }
+
+  async findFollowup(id: string) {
+    const row = await this.client.customerFollowup.findUnique({ where: { id } });
+    return row ? toFollowup(row) : null;
+  }
+
+  async saveFollowup(followup: CustomerFollowup) {
+    await this.client.customerFollowup.upsert({
+      where: { id: followup.id },
+      create: {
+        id: followup.id,
+        tenantId: followup.tenantId,
+        customerId: followup.customerId,
+        content: followup.content,
+        nextAt: followup.nextAt ? new Date(followup.nextAt) : null,
+        done: followup.done,
+      },
+      update: {
+        content: followup.content,
+        nextAt: followup.nextAt ? new Date(followup.nextAt) : null,
+        done: followup.done,
+      },
+    });
+  }
+
+  async listBalanceTransactions(params: PageQueryParams, query: BalanceTransactionListQuery) {
+    const where = { customerId: query.customerId };
+    const [rows, total] = await Promise.all([
+      this.client.customerBalanceTx.findMany({ where, orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.customerBalanceTx.count({ where }),
+    ]);
+    return toPage(rows.map(toBalanceTx), total, params);
+  }
+
+  async saveBalanceTransaction(tx: BalanceTransaction) {
+    await this.client.customerBalanceTx.upsert({
+      where: { id: tx.id },
+      create: {
+        id: tx.id,
+        tenantId: tx.tenantId,
+        customerId: tx.customerId,
+        kind: tx.kind,
+        amount: tx.amount.amount,
+        amountCurrency: tx.amount.currency,
+        balanceAfter: tx.balanceAfter.amount,
+        balanceAfterCurrency: tx.balanceAfter.currency,
+        remark: tx.remark,
+      },
+      update: {},
     });
   }
 

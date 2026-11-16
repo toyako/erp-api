@@ -79,17 +79,59 @@ export class SalesService {
     });
   }
 
-  async payOrder(id: string): Promise<SalesOrder> {
-    const order = await this.requireOrder(id);
-    assertTransition(order.status, 'paid');
-    await this.payment.charge({
-      orderId: order.id,
-      amount: order.total.amount,
-      currency: order.total.currency,
+  /**
+   * 收款：默认走支付网关（Mock）；opts.useBalance 为真时改走客户余额——
+   * 同一事务内验单、验客户、验余额、扣款、记 consume 流水、置 paid，跳过网关。
+   * 余额不足 409；订单未关联客户 400。
+   */
+  async payOrder(id: string, opts?: { useBalance?: boolean }): Promise<SalesOrder> {
+    if (!opts?.useBalance) {
+      const order = await this.requireOrder(id);
+      assertTransition(order.status, 'paid');
+      await this.payment.charge({
+        orderId: order.id,
+        amount: order.total.amount,
+        currency: order.total.currency,
+      });
+      order.status = 'paid';
+      await this.db.saveOrder(order);
+      return order;
+    }
+    return this.db.runInTransaction(async (tx) => {
+      const order = await tx.findOrder(id);
+      if (!order) throw new DomainError('NOT_FOUND', `订单 ${id} 不存在`, 404);
+      assertTransition(order.status, 'paid');
+      if (!order.customerId) {
+        throw new DomainError('INVALID_STATE', '该订单未关联客户，不能用余额支付', 400);
+      }
+      const customer = await tx.findCustomer(order.customerId);
+      if (!customer) throw new DomainError('NOT_FOUND', `客户 ${order.customerId} 不存在`, 404);
+      if (customer.balance.amount < order.total.amount) {
+        throw new DomainError(
+          'INSUFFICIENT_BALANCE',
+          `客户余额不足（余额 ¥${(customer.balance.amount / 100).toFixed(2)}，订单 ¥${(order.total.amount / 100).toFixed(2)}）`,
+          409,
+        );
+      }
+      const balanceAfter = {
+        amount: customer.balance.amount - order.total.amount,
+        currency: customer.balance.currency,
+      };
+      await tx.saveCustomer({ ...customer, balance: balanceAfter });
+      await tx.saveBalanceTransaction({
+        id: randomUUID(),
+        tenantId: TENANT_ID,
+        customerId: customer.id,
+        kind: 'consume',
+        amount: order.total,
+        balanceAfter,
+        remark: `订单 ${order.orderNo} 余额支付`,
+        createdAt: new Date().toISOString(),
+      });
+      order.status = 'paid';
+      await tx.saveOrder(order);
+      return order;
     });
-    order.status = 'paid';
-    await this.db.saveOrder(order);
-    return order;
   }
 
   /** 履约：出库扣减——占用量转出库，总量减少，可用量不变（整单同一事务） */

@@ -175,6 +175,19 @@ async function main() {
     });
   }
 
+  // 等级规则：普通 ¥0 / VIP ¥1000（与迁移种子同口径；update 为空，复跑不覆盖管理员改过的门槛）
+  const levelRules = [
+    { id: '00000000-0000-4000-8000-000000000501', level: 'regular', minSpentAmount: 0 },
+    { id: '00000000-0000-4000-8000-000000000502', level: 'vip', minSpentAmount: 100000 },
+  ] as const;
+  for (const rule of levelRules) {
+    await prisma.levelRule.upsert({
+      where: { id: rule.id },
+      update: {},
+      create: { id: rule.id, tenantId: TENANT, level: rule.level, minSpentAmount: rule.minSpentAmount, minSpentCurrency: 'CNY' },
+    });
+  }
+
   // 两单关联客户：订单是运行期经接口建的（seed 从不建单），库里有才挂上去，没有就是 no-op
   await prisma.salesOrder.updateMany({
     where: { orderNo: 'ERP-MWHLQJA6' },
@@ -248,7 +261,7 @@ async function main() {
     });
   }
 
-  console.log('seed done: 1 tenant / 3 principals / 1 SPU / 2 SKU / 2 lots / 2 suppliers / 3 customers');
+  console.log('seed done: 1 tenant / 3 principals / 1 SPU / 2 SKU / 2 lots / 2 suppliers / 3 customers / 2 level rules');
 }
 
 main()

@@ -1,13 +1,18 @@
 import type {
   AuditEvent,
   AuditEventListQuery,
+  BalanceTransaction,
+  BalanceTransactionListQuery,
   Category,
   CategoryTreeNode,
   Customer,
+  CustomerFollowup,
+  CustomerFollowupListQuery,
   GoodsReceipt,
   GoodsReceiptListQuery,
   InventoryLot,
   Invoice,
+  LevelRule,
   PageQueryParams,
   PriceList,
   PriceTier,
@@ -28,6 +33,7 @@ import type {
 export type DomainErrorCode =
   | 'NOT_FOUND'
   | 'INSUFFICIENT_STOCK'
+  | 'INSUFFICIENT_BALANCE'
   | 'INVALID_STATE'
   | 'UNAUTHORIZED'
   | 'CONFLICT'
@@ -105,6 +111,16 @@ export abstract class DatabasePort {
   abstract listCustomers(params: PageQueryParams): Promise<Page<Customer>>;
   abstract findCustomer(id: string): Promise<Customer | null>;
   abstract saveCustomer(customer: Customer): Promise<void>;
+  /** 等级规则：全量小表，不分页 */
+  abstract listLevelRules(): Promise<LevelRule[]>;
+  abstract saveLevelRule(rule: LevelRule): Promise<void>;
+  /** 跟进记录：customerId 为空 = 全客户 */
+  abstract listFollowups(params: PageQueryParams, query?: CustomerFollowupListQuery): Promise<Page<CustomerFollowup>>;
+  abstract findFollowup(id: string): Promise<CustomerFollowup | null>;
+  abstract saveFollowup(followup: CustomerFollowup): Promise<void>;
+  /** 余额流水：始终按客户查 */
+  abstract listBalanceTransactions(params: PageQueryParams, query: BalanceTransactionListQuery): Promise<Page<BalanceTransaction>>;
+  abstract saveBalanceTransaction(tx: BalanceTransaction): Promise<void>;
   abstract listRmas(params: PageQueryParams): Promise<Page<Rma>>;
   abstract findRma(id: string): Promise<Rma | null>;
   abstract saveRma(rma: Rma): Promise<void>;

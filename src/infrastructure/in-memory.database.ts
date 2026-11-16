@@ -2,13 +2,18 @@ import { Injectable } from '@nestjs/common';
 import type {
   AuditEvent,
   AuditEventListQuery,
+  BalanceTransaction,
+  BalanceTransactionListQuery,
   Category,
   CategoryTreeNode,
   Customer,
+  CustomerFollowup,
+  CustomerFollowupListQuery,
   GoodsReceipt,
   GoodsReceiptListQuery,
   InventoryLot,
   Invoice,
+  LevelRule,
   PageQueryParams,
   PriceList,
   PriceTier,
@@ -44,6 +49,9 @@ interface State {
   purchaseOrders: PurchaseOrder[];
   receipts: GoodsReceipt[];
   customers: Customer[];
+  levelRules: LevelRule[];
+  followups: CustomerFollowup[];
+  balanceTxs: BalanceTransaction[];
   rmas: Rma[];
   shipments: Shipment[];
   invoices: Invoice[];
@@ -105,6 +113,11 @@ function seed(): State {
     { id: '00000000-0000-4000-8000-000000000601', tenantId: TENANT_ID, code: '主仓', name: '主仓', enabled: true },
     { id: '00000000-0000-4000-8000-000000000602', tenantId: TENANT_ID, code: '华东仓', name: '华东仓', enabled: true },
   ];
+  /** 演示等级规则：与 Prisma 迁移种子同口径（普通 ¥0 / VIP ¥1000） */
+  const levelRules: LevelRule[] = [
+    { id: '00000000-0000-4000-8000-000000000501', tenantId: TENANT_ID, level: 'regular', minSpent: { amount: 0, currency: 'CNY' } },
+    { id: '00000000-0000-4000-8000-000000000502', tenantId: TENANT_ID, level: 'vip', minSpent: { amount: 100000, currency: 'CNY' } },
+  ];
   return {
     credentials: { admin: 'demo1234', sales: 'demo1234', viewer: 'demo1234' },
     principals,
@@ -120,6 +133,9 @@ function seed(): State {
     purchaseOrders: [],
     receipts: [],
     customers: [],
+    levelRules,
+    followups: [],
+    balanceTxs: [],
     rmas,
     shipments: [],
     invoices: [],
@@ -388,6 +404,52 @@ export class InMemoryDatabase extends DatabasePort {
     const copy = { ...customer };
     if (i >= 0) this.state.customers[i] = copy;
     else this.state.customers.push(copy);
+  }
+
+  async listLevelRules() {
+    return [...this.state.levelRules]
+      .sort((a, b) => a.minSpent.amount - b.minSpent.amount)
+      .map((r) => ({ ...r, minSpent: { ...r.minSpent } }));
+  }
+
+  async saveLevelRule(rule: LevelRule) {
+    const i = this.state.levelRules.findIndex((r) => r.id === rule.id);
+    const copy = { ...rule, minSpent: { ...rule.minSpent } };
+    if (i >= 0) this.state.levelRules[i] = copy;
+    else this.state.levelRules.push(copy);
+  }
+
+  async listFollowups(params: PageQueryParams, query?: CustomerFollowupListQuery) {
+    const list = query?.customerId
+      ? this.state.followups.filter((f) => f.customerId === query.customerId)
+      : this.state.followups;
+    const sorted = [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return pageOf(sorted.map((f) => ({ ...f })), params);
+  }
+
+  async findFollowup(id: string) {
+    const found = this.state.followups.find((f) => f.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async saveFollowup(followup: CustomerFollowup) {
+    const i = this.state.followups.findIndex((f) => f.id === followup.id);
+    const copy = { ...followup };
+    if (i >= 0) this.state.followups[i] = copy;
+    else this.state.followups.push(copy);
+  }
+
+  async listBalanceTransactions(params: PageQueryParams, query: BalanceTransactionListQuery) {
+    const list = this.state.balanceTxs.filter((t) => t.customerId === query.customerId);
+    const sorted = [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return pageOf(sorted.map((t) => ({ ...t, amount: { ...t.amount }, balanceAfter: { ...t.balanceAfter } })), params);
+  }
+
+  async saveBalanceTransaction(tx: BalanceTransaction) {
+    const i = this.state.balanceTxs.findIndex((t) => t.id === tx.id);
+    const copy = { ...tx, amount: { ...tx.amount }, balanceAfter: { ...tx.balanceAfter } };
+    if (i >= 0) this.state.balanceTxs[i] = copy;
+    else this.state.balanceTxs.push(copy);
   }
 
   async listRmas(params: PageQueryParams) {

@@ -83,7 +83,7 @@ export class DashboardService {
   }
 
   private async loadAll() {
-    const [orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices] = await Promise.all([
+    const [orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices, followups, customers] = await Promise.all([
       this.collectAll((p) => this.db.listOrders(p)),
       this.collectAll((p) => this.db.listLots(p)),
       this.collectAll((p) => this.db.listSkus(p)),
@@ -94,8 +94,10 @@ export class DashboardService {
       this.collectAll((p) => this.db.listStocktakes(p)),
       this.collectAll((p) => this.db.listShipments(p)),
       this.collectAll((p) => this.db.listInvoices(p)),
+      this.collectAll((p) => this.db.listFollowups(p)),
+      this.collectAll((p) => this.db.listCustomers(p)),
     ]);
-    return { orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices };
+    return { orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices, followups, customers };
   }
 
   async getOverview(): Promise<OverviewSummary> {
@@ -360,9 +362,10 @@ export class DashboardService {
     return { range, buckets, supplierRanking, statusCounts, receivedRate };
   }
 
-  /** 待办派生：订单按状态一条、退货待审核一条、调拨按状态三条（待提交/待审核/待完成）、盘点待确认一条、采购单按状态两条（待审核/待入库）、发货单按状态三条（待拣货/待打包/待发货）、发票待开具一条、可用量 < 20 的批次一条预警；先过滤再分页 */
+  /** 待办派生：订单按状态一条、退货待审核一条、调拨按状态三条（待提交/待审核/待完成）、盘点待确认一条、采购单按状态两条（待审核/待入库）、发货单按状态三条（待拣货/待打包/待发货）、发票待开具一条、跟进到期一条、可用量 < 20 的批次一条预警；先过滤再分页 */
   async listTodos(query: TodoListQuery): Promise<Page<TodoItem>> {
-    const { orders, lots, rmas, transfers, stocktakes, purchaseOrders, shipments, invoices } = await this.loadAll();
+    const { orders, lots, rmas, transfers, stocktakes, purchaseOrders, shipments, invoices, followups, customers } = await this.loadAll();
+    const customerById = new Map(customers.map((c) => [c.id, c]));
     const items: TodoItem[] = [];
     for (const o of orders) {
       if (o.status === 'paid') {
@@ -421,6 +424,12 @@ export class DashboardService {
         items.push({ id: `po-review-${p.id}`, type: 'purchase', typeLabel: '采购', cls: 'orange', title: '采购单待审核', refNo: p.orderNo, actor: '系统', time: p.createdAt, done: false, action: '去审核', to: '/erp/purchase/orders' });
       } else if (p.status === 'approved' || p.status === 'partially_received') {
         items.push({ id: `po-${p.id}`, type: 'purchase', typeLabel: '采购', cls: 'orange', title: p.status === 'partially_received' ? '采购单待入库（部分已收）' : '采购单待入库', refNo: p.orderNo, actor: '系统', time: p.createdAt, done: false, action: '去入库', to: '/erp/purchase/orders' });
+      }
+    }
+    const now = new Date().toISOString();
+    for (const f of followups) {
+      if (!f.done && f.nextAt && f.nextAt <= now) {
+        items.push({ id: `follow-${f.id}`, type: 'followup', typeLabel: '跟进', cls: 'orange', title: `客户跟进到期：${f.content.slice(0, 20)}`, refNo: customerById.get(f.customerId)?.code ?? f.customerId.slice(0, 8), actor: '系统', time: f.nextAt, done: false, action: '去跟进', to: '/erp/sales/customers' });
       }
     }
     items.sort((a, b) => Number(a.done) - Number(b.done) || b.time.localeCompare(a.time));

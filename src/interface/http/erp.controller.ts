@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UseI
 import {
   AuditEventListQuerySchema,
   CreateCategoryRequestSchema,
+  CreateCustomerFollowupRequestSchema,
   CreateCustomerRequestSchema,
   CreateInvoiceRequestSchema,
   CreateOrderRequestSchema,
@@ -30,8 +31,11 @@ import {
   ReportQuerySchema,
   ShipShipmentRequestSchema,
   TodoListQuerySchema,
+  TopupRequestSchema,
   UpdateCategoryRequestSchema,
+  UpdateCustomerFollowupRequestSchema,
   UpdateCustomerRequestSchema,
+  UpdateLevelRuleRequestSchema,
   UpdatePriceRequestSchema,
   UpdatePriceTierRequestSchema,
   UpdateWarehouseRequestSchema,
@@ -40,6 +44,7 @@ import {
   UpdateSupplierRequestSchema,
   type AuditEventListQuery,
   type CreateCategoryRequest,
+  type CreateCustomerFollowupRequest,
   type CreateCustomerRequest,
   type CreateInvoiceRequest,
   type CreateOrderRequest,
@@ -69,8 +74,11 @@ import {
   type Sku,
   type Supplier,
   type TodoListQuery,
+  type TopupRequest,
   type UpdateCategoryRequest,
+  type UpdateCustomerFollowupRequest,
   type UpdateCustomerRequest,
+  type UpdateLevelRuleRequest,
   type UpdatePriceRequest,
   type UpdatePriceTierRequest,
   type UpdateWarehouseRequest,
@@ -219,6 +227,66 @@ export class ErpController {
     @Body(new ZodValidationPipe(UpdateCustomerRequestSchema)) body: UpdateCustomerRequest,
   ) {
     return this.customer.updateCustomer(id, body);
+  }
+
+  /** 客户充值：加预存款余额并记流水 */
+  @Post('customers/:id/topup')
+  topupCustomer(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(TopupRequestSchema)) body: TopupRequest,
+  ) {
+    return this.customer.topupCustomer(id, body);
+  }
+
+  /** 客户余额流水：按创建时间倒序 */
+  @Get('customers/:id/balance-txs')
+  balanceTransactions(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.customer.listBalanceTransactions(id, query);
+  }
+
+  /** 客户跟进列表：按创建时间倒序 */
+  @Get('customers/:id/followups')
+  followups(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.customer.listFollowups(id, query);
+  }
+
+  /** 新建跟进记录 */
+  @Post('customers/:id/followups')
+  createFollowup(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(CreateCustomerFollowupRequestSchema)) body: CreateCustomerFollowupRequest,
+  ) {
+    return this.customer.createFollowup(id, body);
+  }
+
+  /** 改跟进记录（内容/下次跟进时间/完成标记） */
+  @Patch('customers/followups/:id')
+  updateFollowup(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateCustomerFollowupRequestSchema)) body: UpdateCustomerFollowupRequest,
+  ) {
+    return this.customer.updateFollowup(id, body);
+  }
+
+  /** 等级规则列表：按门槛升序（顶级路径，避免与 customers/:id 冲突） */
+  @Get('customer-level-rules')
+  levelRules() {
+    return this.customer.listLevelRules();
+  }
+
+  /** 改等级门槛：只改门槛金额，不批量重评现有客户（下次订单事件时生效） */
+  @Patch('customer-level-rules/:level')
+  updateLevelRule(
+    @Param('level') level: string,
+    @Body(new ZodValidationPipe(UpdateLevelRuleRequestSchema)) body: UpdateLevelRuleRequest,
+  ) {
+    return this.customer.updateLevelRule(level, body);
   }
 
   @Get('purchase/suppliers')
@@ -512,15 +580,17 @@ export class ErpController {
   }
 
   @Post('sales/orders')
-  createOrder(
+  async createOrder(
     @Body(new ZodValidationPipe(CreateOrderRequestSchema)) body: CreateOrderRequest,
   ) {
-    return this.sales.createOrder(body);
+    const order = await this.sales.createOrder(body);
+    await this.syncCustomerLevel(order.customerId);
+    return order;
   }
 
   @Post('sales/orders/:id/pay')
-  pay(@Param('id') id: string) {
-    return this.sales.payOrder(id);
+  pay(@Param('id') id: string, @Body() body?: { useBalance?: boolean }) {
+    return this.sales.payOrder(id, { useBalance: body?.useBalance === true });
   }
 
   @Post('sales/orders/:id/fulfill')
@@ -534,8 +604,23 @@ export class ErpController {
   }
 
   @Post('sales/orders/:id/cancel')
-  cancel(@Param('id') id: string) {
-    return this.sales.cancelOrder(id);
+  async cancel(@Param('id') id: string) {
+    const order = await this.sales.cancelOrder(id);
+    await this.syncCustomerLevel(order.customerId);
+    return order;
+  }
+
+  /**
+   * 订单新建/取消后按累计消费重评客户等级：派生数据，失败只记日志，
+   * 绝不影响主单据的响应。
+   */
+  private async syncCustomerLevel(customerId?: string | null) {
+    if (!customerId) return;
+    try {
+      await this.customer.reevaluateLevel(customerId);
+    } catch (error) {
+      console.warn(`[customer-level] reevaluate failed for ${customerId}:`, error);
+    }
   }
 
   @Get('rmas')

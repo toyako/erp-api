@@ -74,6 +74,24 @@ async function main() {
   const customerSearch = await call('/customers?search=CUST-SMOKE');
   const customerSearchNone = await call('/customers?search=' + encodeURIComponent('不存在'));
 
+  // 第 7 批 CRM：充值 → 余额支付 → 等级规则 → 跟进到期待办 → 完成消失
+  const cid = newCustomer.body.id;
+  const topup = cid ? await call(`/customers/${cid}/topup`, jsonPost({ amount: { amount: 50000, currency: 'CNY' }, remark: '冒烟充值' })) : { status: 0, body: {} };
+  const balanceTxs = cid ? await call(`/customers/${cid}/balance-txs`) : { status: 0, body: {} };
+  const levelRules = await call('/customer-level-rules');
+  const levelRuleSet = await call('/customer-level-rules/vip', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ minSpent: { amount: 150000, currency: 'CNY' } }) });
+  const balanceOrder = cid ? await call('/sales/orders', jsonPost({ lines: [{ skuId: sku.id, quantity: 1 }], customerId: cid })) : { status: 0, body: {} };
+  const balanceOrderId = balanceOrder.body.id;
+  const balanceConfirmed = balanceOrderId ? await call(`/sales/orders/${balanceOrderId}/confirm`, { method: 'POST' }) : { status: 0, body: {} };
+  const balancePaid = balanceOrderId ? await call(`/sales/orders/${balanceOrderId}/pay`, jsonPost({ useBalance: true })) : { status: 0, body: {} };
+  const customerAfterPay = cid ? await call(`/customers/${cid}`) : { status: 0, body: {} };
+  // 余额单随后履约出库：把占用的 1 件清掉，否则后段盘点/发货断言会多 1 件占用
+  const balanceFulfilled = balanceOrderId ? await call(`/sales/orders/${balanceOrderId}/fulfill`, { method: 'POST' }) : { status: 0, body: {} };
+  const followupCreated = cid ? await call(`/customers/${cid}/followups`, jsonPost({ content: '冒烟跟进', nextAt: new Date(Date.now() - 1000).toISOString() })) : { status: 0, body: {} };
+  const todosFollowupBefore = await call('/dashboard/todos?type=followup&page=1&pageSize=20');
+  const followupDone = followupCreated.body.id ? await call(`/customers/followups/${followupCreated.body.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ done: true }) }) : { status: 0, body: {} };
+  const todosFollowupAfter = await call('/dashboard/todos?type=followup&page=1&pageSize=20');
+
   const before = await call('/inventory/lots');
   const created = await call('/sales/orders', jsonPost({ lines: [{ skuId: sku.id, quantity: 2 }] }));
   const after = await call('/inventory/lots');
@@ -229,6 +247,12 @@ async function main() {
     customerTotalSpent: gotCustomer.status === 200 && gotCustomer.body.totalSpent && typeof gotCustomer.body.totalSpent.amount === 'number',
     customerSearch: customerSearch.status === 200 && customerSearch.body.total === 1 && customerSearch.body.items[0].code === 'CUST-SMOKE',
     customerSearchNone: customerSearchNone.status === 200 && customerSearchNone.body.total === 0,
+    crmTopup: topup.status === 201 && topup.body.balance && topup.body.balance.amount === 50000,
+    crmBalanceTxs: balanceTxs.status === 200 && balanceTxs.body.total === 1 && balanceTxs.body.items[0].kind === 'topup',
+    crmLevelRules: Array.isArray(levelRules.body) && levelRules.body.length === 2 && levelRules.body.find((r) => r.level === 'vip').minSpent.amount === 100000,
+    crmLevelRuleSet: levelRuleSet.status === 200 && levelRuleSet.body.minSpent && levelRuleSet.body.minSpent.amount === 150000,
+    crmBalancePaid: balancePaid.body.status === 'paid' && customerAfterPay.body.balance && customerAfterPay.body.balance.amount === 30100 && balanceFulfilled.body.status === 'fulfilled',
+    crmFollowupTodo: todosFollowupBefore.body.total === 1 && (todosFollowupBefore.body.items || [])[0].type === 'followup' && followupDone.body.done === true && todosFollowupAfter.body.total === 0,
     orderCreated: created.status === 201 && created.body.status === 'draft',
     serverSidePricing: created.body.total && created.body.total.amount === 39800,
     stockReserved: lotAfter.reservedQty === (lotBefore.reservedQty || 0) + 2,
