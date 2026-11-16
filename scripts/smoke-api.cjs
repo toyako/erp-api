@@ -183,6 +183,18 @@ async function main() {
   // SKU 成本价：PATCH 设 ¥130 再清回 null（验 updateSku 的 cost 合并与 null 清除；token 由 call 自动注入）
   const skuCostSet = sku.id ? await call(`/products/skus/${sku.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cost: { amount: 13000, currency: 'CNY' } }) }) : { status: 0, body: {} };
   const skuCostCleared = sku.id ? await call(`/products/skus/${sku.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cost: null }) }) : { status: 0, body: {} };
+
+  // 第 6 批：分类树（种子根 + 两子）+ 新建子分类 + 成环 400；阶梯价（5 件档）+ resolve（5 件取档、1 件回落）；仓库（种子两仓）+ 新建 + 停用有批次 409
+  const catTree = await call('/product/categories');
+  const catChild = await call('/product/categories', jsonPost({ code: 'SMOKE-CAT', name: '冒烟分类', parentId: catTree.body[0] && catTree.body[0].id }));
+  const catCycle = catChild.body.id ? await call(`/product/categories/${catTree.body[0].id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ parentId: catChild.body.id }) }) : { status: 0, body: {} };
+  const tierCreated = await call('/products/price-tiers', jsonPost({ skuId: sku.id, minQty: 5, price: { amount: 19900, currency: 'CNY' } }));
+  const tierDup = await call('/products/price-tiers', jsonPost({ skuId: sku.id, minQty: 5, price: { amount: 19000, currency: 'CNY' } }));
+  const resolve5 = await call(`/products/price-tiers/resolve?skuId=${sku.id}&quantity=5`);
+  const resolve1 = await call(`/products/price-tiers/resolve?skuId=${sku.id}&quantity=1`);
+  const warehouses = await call('/stock/warehouses');
+  const whCreated = await call('/stock/warehouses', jsonPost({ code: 'SMOKE-WH', name: '冒烟仓' }));
+  const whDisableMain = warehouses.body.items && warehouses.body.items[0] ? await call(`/stock/warehouses/${warehouses.body.items[0].id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }) }) : { status: 0, body: {} };
   const todos = await call('/dashboard/todos?page=1&pageSize=2');
   const receivables = await call('/dashboard/receivables?page=1&pageSize=2');
   const payables = await call('/dashboard/payables?page=1&pageSize=2');
@@ -284,6 +296,16 @@ async function main() {
     po2RejectEmpty: po2RejectEmpty.status === 400,
     po2Rejected: po2Rejected.body.status === 'rejected' && po2Rejected.body.rejectReason === '价格高于市场价',
     skuCostSet: skuCostSet.body.cost && skuCostSet.body.cost.amount === 13000,
+    catTreeSeeded: Array.isArray(catTree.body) && catTree.body.length === 1 && catTree.body[0].code === 'SOFTWARE' && Array.isArray(catTree.body[0].children) && catTree.body[0].children.length === 2,
+    catCreated: catChild.status === 201 && catChild.body.code === 'SMOKE-CAT',
+    catCycleRejected: catCycle.status === 400,
+    tierCreated: tierCreated.status === 201 && tierCreated.body.minQty === 5,
+    tierDupRejected: tierDup.status === 409,
+    tierResolve5: resolve5.status === 200 && resolve5.body.price && resolve5.body.price.amount === 19900 && resolve5.body.tier && resolve5.body.tier.minQty === 5,
+    tierResolve1Fallback: resolve1.status === 200 && resolve1.body.price && resolve1.body.price.amount === 19900 && resolve1.body.tier === null,
+    warehousesSeeded: warehouses.status === 200 && (warehouses.body.items || []).map((w) => w.code).join(',') === '主仓,华东仓',
+    warehouseCreated: whCreated.status === 201 && whCreated.body.code === 'SMOKE-WH',
+    warehouseDisableRejected: whDisableMain.status === 409,
     skuCostCleared: skuCostCleared.body.cost === null,
   };
 

@@ -65,6 +65,29 @@ async function main() {
     });
   }
 
+  // 仓库档案与分类树：与迁移里的种子行同 id，upsert 保证幂等（重建后仍有主仓/华东仓与软件分类）
+  for (const w of [
+    { id: '00000000-0000-4000-8000-000000000601', code: '主仓', name: '主仓' },
+    { id: '00000000-0000-4000-8000-000000000602', code: '华东仓', name: '华东仓' },
+  ]) {
+    await prisma.warehouse.upsert({
+      where: { id: w.id },
+      update: { name: w.name, enabled: true },
+      create: { id: w.id, tenantId: TENANT, code: w.code, name: w.name, enabled: true },
+    });
+  }
+  for (const c of [
+    { id: '00000000-0000-4000-8000-000000000603', code: 'SOFTWARE', name: '软件', parentId: null as string | null, sort: 0 },
+    { id: '00000000-0000-4000-8000-000000000604', code: 'SOFTWARE-STD', name: '标准套件', parentId: '00000000-0000-4000-8000-000000000603', sort: 0 },
+    { id: '00000000-0000-4000-8000-000000000605', code: 'SOFTWARE-PRO', name: '专业套件', parentId: '00000000-0000-4000-8000-000000000603', sort: 1 },
+  ]) {
+    await prisma.category.upsert({
+      where: { id: c.id },
+      update: { name: c.name, parentId: c.parentId, sort: c.sort, enabled: true },
+      create: { id: c.id, tenantId: TENANT, code: c.code, name: c.name, parentId: c.parentId, sort: c.sort, enabled: true },
+    });
+  }
+
   await prisma.spu.upsert({
     where: { id: SPU },
     update: {},

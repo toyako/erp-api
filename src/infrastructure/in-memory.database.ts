@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import type {
   AuditEvent,
   AuditEventListQuery,
+  Category,
+  CategoryTreeNode,
   Customer,
   GoodsReceipt,
   GoodsReceiptListQuery,
@@ -9,6 +11,8 @@ import type {
   Invoice,
   PageQueryParams,
   PriceList,
+  PriceTier,
+  PriceTierListQuery,
   Principal,
   PurchaseOrder,
   Rma,
@@ -19,6 +23,7 @@ import type {
   Stocktake,
   Supplier,
   Transfer,
+  Warehouse,
 } from '@erp/contracts';
 import { DEFAULT_LOCATION } from '@erp/contracts';
 import { DatabasePort, type Page } from '../domain/ports';
@@ -30,6 +35,9 @@ interface State {
   spus: Spu[];
   skus: Sku[];
   prices: PriceList[];
+  priceTiers: PriceTier[];
+  categories: Category[];
+  warehouses: Warehouse[];
   lots: InventoryLot[];
   orders: SalesOrder[];
   suppliers: Supplier[];
@@ -86,12 +94,26 @@ function seed(): State {
   const stocktakes: Stocktake[] = [
     { id: '00000000-0000-4000-8000-000000000904', tenantId: TENANT_ID, stocktakeNo: 'STK-DEMO-001', lotId: '00000000-0000-4000-8000-000000000201', skuId: skuA, countedQty: 100, systemQty: 100, difference: 0, status: 'draft', createdAt: '2026-11-16T00:00:00.000Z', confirmedAt: null },
   ];
+  /** 演示分类树：根“软件”下挂两个子分类，与种子 SPU 的 categoryCode 对应 */
+  const categories: Category[] = [
+    { id: '00000000-0000-4000-8000-000000000603', tenantId: TENANT_ID, code: 'SOFTWARE', name: '软件', parentId: null, sort: 0, enabled: true },
+    { id: '00000000-0000-4000-8000-000000000604', tenantId: TENANT_ID, code: 'SOFTWARE-STD', name: '标准套件', parentId: '00000000-0000-4000-8000-000000000603', sort: 0, enabled: true },
+    { id: '00000000-0000-4000-8000-000000000605', tenantId: TENANT_ID, code: 'SOFTWARE-PRO', name: '专业套件', parentId: '00000000-0000-4000-8000-000000000603', sort: 1, enabled: true },
+  ];
+  /** 演示仓库档案：与种子批次 location 值一致 */
+  const warehouses: Warehouse[] = [
+    { id: '00000000-0000-4000-8000-000000000601', tenantId: TENANT_ID, code: '主仓', name: '主仓', enabled: true },
+    { id: '00000000-0000-4000-8000-000000000602', tenantId: TENANT_ID, code: '华东仓', name: '华东仓', enabled: true },
+  ];
   return {
     credentials: { admin: 'demo1234', sales: 'demo1234', viewer: 'demo1234' },
     principals,
     spus,
     skus,
     prices,
+    priceTiers: [],
+    categories,
+    warehouses,
     lots,
     orders: [],
     suppliers: [],
@@ -179,6 +201,93 @@ export class InMemoryDatabase extends DatabasePort {
     const copy = { ...price };
     if (i >= 0) this.state.prices[i] = copy;
     else this.state.prices.push(copy);
+  }
+
+  async listPriceTiers(params: PageQueryParams, query?: PriceTierListQuery) {
+    const list = query?.skuId ? this.state.priceTiers.filter((t) => t.skuId === query.skuId) : this.state.priceTiers;
+    const sorted = [...list].sort((a, b) => a.skuId.localeCompare(b.skuId) || a.minQty - b.minQty);
+    return pageOf(sorted.map((t) => ({ ...t })), params);
+  }
+
+  async findPriceTier(id: string) {
+    const found = this.state.priceTiers.find((t) => t.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async savePriceTier(tier: PriceTier) {
+    const i = this.state.priceTiers.findIndex((t) => t.id === tier.id);
+    const copy = { ...tier };
+    if (i >= 0) this.state.priceTiers[i] = copy;
+    else this.state.priceTiers.push(copy);
+  }
+
+  async deletePriceTier(id: string) {
+    this.state.priceTiers = this.state.priceTiers.filter((t) => t.id !== id);
+  }
+
+  async findBestPriceTier(skuId: string, quantity: number, channelCode: string) {
+    const found = this.state.priceTiers
+      .filter((t) => t.skuId === skuId && t.channelCode === channelCode && t.enabled && t.minQty <= quantity)
+      .sort((a, b) => b.minQty - a.minQty)[0];
+    return found ? { ...found } : null;
+  }
+
+  async listCategories(params: PageQueryParams) {
+    const sorted = [...this.state.categories].sort((a, b) => a.sort - b.sort);
+    return pageOf(sorted.map((c) => ({ ...c })), params);
+  }
+
+  async findCategory(id: string) {
+    const found = this.state.categories.find((c) => c.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async findCategoryByCode(code: string) {
+    const found = this.state.categories.find((c) => c.code === code);
+    return found ? { ...found } : null;
+  }
+
+  async saveCategory(category: Category) {
+    const i = this.state.categories.findIndex((c) => c.id === category.id);
+    const copy = { ...category };
+    if (i >= 0) this.state.categories[i] = copy;
+    else this.state.categories.push(copy);
+  }
+
+  async deleteCategory(id: string) {
+    this.state.categories = this.state.categories.filter((c) => c.id !== id);
+  }
+
+  async listCategoryTree() {
+    const nodes = new Map<string, CategoryTreeNode>();
+    for (const c of this.state.categories) nodes.set(c.id, { ...c, children: [] });
+    const roots: CategoryTreeNode[] = [];
+    for (const node of [...nodes.values()].sort((a, b) => a.sort - b.sort)) {
+      if (node.parentId && nodes.has(node.parentId)) nodes.get(node.parentId)!.children.push(node);
+      else roots.push(node);
+    }
+    return roots;
+  }
+
+  async listWarehouses(params: PageQueryParams) {
+    return pageOf(this.state.warehouses.map((w) => ({ ...w })), params);
+  }
+
+  async findWarehouse(id: string) {
+    const found = this.state.warehouses.find((w) => w.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async findWarehouseByCode(code: string) {
+    const found = this.state.warehouses.find((w) => w.code === code);
+    return found ? { ...found } : null;
+  }
+
+  async saveWarehouse(warehouse: Warehouse) {
+    const i = this.state.warehouses.findIndex((w) => w.id === warehouse.id);
+    const copy = { ...warehouse };
+    if (i >= 0) this.state.warehouses[i] = copy;
+    else this.state.warehouses.push(copy);
   }
   async listLots(params: PageQueryParams) { return pageOf(this.state.lots.map((l) => ({ ...l })), params); }
   async findLot(id: string) {

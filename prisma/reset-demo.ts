@@ -28,15 +28,23 @@ const TABLES = [
   'rma',
   'stocktake',
   'transfer',
+  'shipmentLine',
+  'shipment',
+  'invoice',
+  'goodsReceiptLine',
+  'goodsReceipt',
   'purchaseOrderLine',
   'purchaseOrder',
   'salesOrder',
   'priceList',
+  'priceTier',
   'inventoryLot',
   'customer',
   'supplier',
   'sku',
   'spu',
+  'category',
+  'warehouse',
   'principal',
   'tenant',
 ] as const;
@@ -48,7 +56,7 @@ async function main() {
     return;
   }
 
-  console.log('reset-demo：开始清库（18 张表，deleteMany）…');
+  console.log('reset-demo：开始清库（26 张表，deleteMany）…');
   for (const table of TABLES) {
     const { count } = await (prisma[table] as { deleteMany: () => Promise<{ count: number }> }).deleteMany();
     console.log(`  ${table}: 删除 ${count} 行`);

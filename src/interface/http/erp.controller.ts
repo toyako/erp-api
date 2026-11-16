@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import {
   AuditEventListQuerySchema,
+  CreateCategoryRequestSchema,
   CreateCustomerRequestSchema,
   CreateInvoiceRequestSchema,
   CreateOrderRequestSchema,
   CreatePriceRequestSchema,
   CreatePrincipalRequestSchema,
+  CreatePriceTierRequestSchema,
   CreatePurchaseOrderRequestSchema,
   CreateRmaRequestSchema,
   CreateShipmentRequestSchema,
@@ -14,28 +16,36 @@ import {
   CreateStocktakeRequestSchema,
   CreateSupplierRequestSchema,
   CreateTransferRequestSchema,
+  CreateWarehouseRequestSchema,
   GoodsReceiptListQuerySchema,
   LoginRequestSchema,
   MovementListQuerySchema,
   PageQueryParamsSchema,
+  PriceTierListQuerySchema,
   ReceivePurchaseOrderRequestSchema,
   RejectPurchaseOrderRequestSchema,
+  ResolvePriceQuerySchema,
   RejectRmaRequestSchema,
   RejectTransferRequestSchema,
   ReportQuerySchema,
   ShipShipmentRequestSchema,
   TodoListQuerySchema,
+  UpdateCategoryRequestSchema,
   UpdateCustomerRequestSchema,
   UpdatePriceRequestSchema,
+  UpdatePriceTierRequestSchema,
+  UpdateWarehouseRequestSchema,
   UpdatePrincipalRequestSchema,
   UpdateSkuRequestSchema,
   UpdateSupplierRequestSchema,
   type AuditEventListQuery,
+  type CreateCategoryRequest,
   type CreateCustomerRequest,
   type CreateInvoiceRequest,
   type CreateOrderRequest,
   type CreatePriceRequest,
   type CreatePrincipalRequest,
+  type CreatePriceTierRequest,
   type CreatePurchaseOrderRequest,
   type CreateRmaRequest,
   type CreateShipmentRequest,
@@ -43,12 +53,15 @@ import {
   type CreateStocktakeRequest,
   type CreateSupplierRequest,
   type CreateTransferRequest,
+  type CreateWarehouseRequest,
   type GoodsReceiptListQuery,
   type LoginRequest,
   type MovementListQuery,
   type PageQueryParams,
+  type PriceTierListQuery,
   type ReceivePurchaseOrderRequest,
   type RejectPurchaseOrderRequest,
+  type ResolvePriceQuery,
   type RejectRmaRequest,
   type RejectTransferRequest,
   type ReportQuery,
@@ -56,15 +69,20 @@ import {
   type Sku,
   type Supplier,
   type TodoListQuery,
+  type UpdateCategoryRequest,
   type UpdateCustomerRequest,
   type UpdatePriceRequest,
+  type UpdatePriceTierRequest,
+  type UpdateWarehouseRequest,
   type UpdatePrincipalRequest,
   type UpdateSkuRequest,
   type UpdateSupplierRequest,
 } from '@erp/contracts';
 import { IamService } from '../../application/iam.service';
+import { CategoryService } from '../../application/category.service';
 import { CustomerService } from '../../application/customer.service';
 import { DashboardService } from '../../application/dashboard.service';
+import { PriceTierService } from '../../application/price-tier.service';
 import { ProductService } from '../../application/product.service';
 import { PurchaseService } from '../../application/purchase.service';
 import { RmaService } from '../../application/rma.service';
@@ -73,6 +91,7 @@ import { ShipmentService } from '../../application/shipment.service';
 import { InvoiceService } from '../../application/invoice.service';
 import { StocktakeService } from '../../application/stocktake.service';
 import { TransferService } from '../../application/transfer.service';
+import { WarehouseService } from '../../application/warehouse.service';
 import { DatabasePort, DomainError } from '../../domain/ports';
 import { AuditInterceptor } from './audit.interceptor';
 import { Public } from './auth.guard';
@@ -86,6 +105,9 @@ export class ErpController {
     private readonly sales: SalesService,
     private readonly purchase: PurchaseService,
     private readonly product: ProductService,
+    private readonly category: CategoryService,
+    private readonly priceTier: PriceTierService,
+    private readonly warehouse: WarehouseService,
     private readonly customer: CustomerService,
     private readonly rma: RmaService,
     private readonly shipment: ShipmentService,
@@ -389,6 +411,90 @@ export class ErpController {
     @Body(new ZodValidationPipe(UpdatePriceRequestSchema)) body: UpdatePriceRequest,
   ) {
     return this.product.updatePrice(id, body);
+  }
+
+  @Get('product/categories')
+  async categoryTree() {
+    return this.category.listTree();
+  }
+
+  @Post('product/categories')
+  createCategory(
+    @Body(new ZodValidationPipe(CreateCategoryRequestSchema)) body: CreateCategoryRequest,
+  ) {
+    return this.category.createCategory(body);
+  }
+
+  @Patch('product/categories/:id')
+  updateCategory(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateCategoryRequestSchema)) body: UpdateCategoryRequest,
+  ) {
+    return this.category.updateCategory(id, body);
+  }
+
+  @Delete('product/categories/:id')
+  async deleteCategory(@Param('id') id: string) {
+    await this.category.deleteCategory(id);
+    return { deleted: true };
+  }
+
+  @Get('products/price-tiers')
+  async priceTiers(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+    @Query(new ZodValidationPipe(PriceTierListQuerySchema)) filter: PriceTierListQuery,
+  ) {
+    return this.priceTier.listPriceTiers(query, filter.skuId);
+  }
+
+  @Get('products/price-tiers/resolve')
+  async resolvePrice(
+    @Query(new ZodValidationPipe(ResolvePriceQuerySchema)) query: ResolvePriceQuery,
+  ) {
+    return this.priceTier.resolvePrice(query.skuId, query.quantity, query.channelCode ?? 'DIRECT');
+  }
+
+  @Post('products/price-tiers')
+  createPriceTier(
+    @Body(new ZodValidationPipe(CreatePriceTierRequestSchema)) body: CreatePriceTierRequest,
+  ) {
+    return this.priceTier.createPriceTier(body);
+  }
+
+  @Patch('products/price-tiers/:id')
+  updatePriceTier(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdatePriceTierRequestSchema)) body: UpdatePriceTierRequest,
+  ) {
+    return this.priceTier.updatePriceTier(id, body);
+  }
+
+  @Delete('products/price-tiers/:id')
+  async deletePriceTier(@Param('id') id: string) {
+    await this.priceTier.deletePriceTier(id);
+    return { deleted: true };
+  }
+
+  @Get('stock/warehouses')
+  async warehouses(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.warehouse.listWarehouses(query);
+  }
+
+  @Post('stock/warehouses')
+  createWarehouse(
+    @Body(new ZodValidationPipe(CreateWarehouseRequestSchema)) body: CreateWarehouseRequest,
+  ) {
+    return this.warehouse.createWarehouse(body);
+  }
+
+  @Patch('stock/warehouses/:id')
+  updateWarehouse(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateWarehouseRequestSchema)) body: UpdateWarehouseRequest,
+  ) {
+    return this.warehouse.updateWarehouse(id, body);
   }
 
   @Get('inventory/lots')

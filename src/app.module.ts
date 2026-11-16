@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaClient } from '@prisma/client';
 import { IamService } from './application/iam.service';
+import { CategoryService } from './application/category.service';
 import { CustomerService } from './application/customer.service';
 import { DashboardService } from './application/dashboard.service';
 import { InvoiceService } from './application/invoice.service';
+import { PriceTierService } from './application/price-tier.service';
 import { ProductService } from './application/product.service';
 import { PurchaseService } from './application/purchase.service';
 import { RmaService } from './application/rma.service';
@@ -12,6 +14,7 @@ import { SalesService } from './application/sales.service';
 import { ShipmentService } from './application/shipment.service';
 import { StocktakeService } from './application/stocktake.service';
 import { TransferService } from './application/transfer.service';
+import { WarehouseService } from './application/warehouse.service';
 import { DatabasePort, PaymentGatewayPort } from './domain/ports';
 import { InMemoryDatabase } from './infrastructure/in-memory.database';
 import { MockPaymentGateway } from './infrastructure/mock-payment.gateway';
@@ -35,6 +38,9 @@ function createDatabase(): DatabasePort {
     SalesService,
     PurchaseService,
     ProductService,
+    CategoryService,
+    PriceTierService,
+    WarehouseService,
     CustomerService,
     RmaService,
     ShipmentService,

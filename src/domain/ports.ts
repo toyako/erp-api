@@ -1,6 +1,8 @@
 import type {
   AuditEvent,
   AuditEventListQuery,
+  Category,
+  CategoryTreeNode,
   Customer,
   GoodsReceipt,
   GoodsReceiptListQuery,
@@ -8,6 +10,8 @@ import type {
   Invoice,
   PageQueryParams,
   PriceList,
+  PriceTier,
+  PriceTierListQuery,
   Principal,
   PurchaseOrder,
   Rma,
@@ -18,6 +22,7 @@ import type {
   Stocktake,
   Supplier,
   Transfer,
+  Warehouse,
 } from '@erp/contracts';
 
 export type DomainErrorCode =
@@ -65,6 +70,22 @@ export abstract class DatabasePort {
   abstract listPrices(params: PageQueryParams): Promise<Page<PriceList>>;
   abstract findPrice(id: string): Promise<PriceList | null>;
   abstract savePrice(price: PriceList): Promise<void>;
+  abstract listPriceTiers(params: PageQueryParams, query?: PriceTierListQuery): Promise<Page<PriceTier>>;
+  abstract findPriceTier(id: string): Promise<PriceTier | null>;
+  abstract savePriceTier(tier: PriceTier): Promise<void>;
+  abstract deletePriceTier(id: string): Promise<void>;
+  /** 阶梯取价：满足 minQty ≤ 数量的已启用档中 minQty 最大的一条，无档返回 null */
+  abstract findBestPriceTier(skuId: string, quantity: number, channelCode: string): Promise<PriceTier | null>;
+  abstract listCategories(params: PageQueryParams): Promise<Page<Category>>;
+  abstract findCategory(id: string): Promise<Category | null>;
+  abstract findCategoryByCode(code: string): Promise<Category | null>;
+  abstract saveCategory(category: Category): Promise<void>;
+  abstract deleteCategory(id: string): Promise<void>;
+  abstract listCategoryTree(): Promise<CategoryTreeNode[]>;
+  abstract listWarehouses(params: PageQueryParams): Promise<Page<Warehouse>>;
+  abstract findWarehouse(id: string): Promise<Warehouse | null>;
+  abstract findWarehouseByCode(code: string): Promise<Warehouse | null>;
+  abstract saveWarehouse(warehouse: Warehouse): Promise<void>;
   abstract listLots(params: PageQueryParams): Promise<Page<InventoryLot>>;
   abstract findLot(id: string): Promise<InventoryLot | null>;
   abstract findLotBySku(skuId: string): Promise<InventoryLot | null>;

@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import type {
   AuditEvent,
   AuditEventListQuery,
+  Category,
+  CategoryTreeNode,
   Customer,
   GoodsReceipt,
   GoodsReceiptListQuery,
@@ -11,6 +13,8 @@ import type {
   OrderLine,
   PageQueryParams,
   PriceList,
+  PriceTier,
+  PriceTierListQuery,
   Principal,
   PurchaseOrder,
   PurchaseOrderLine,
@@ -24,6 +28,7 @@ import type {
   Stocktake,
   Supplier,
   Transfer,
+  Warehouse,
 } from '@erp/contracts';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { DatabasePort, type Page } from '../domain/ports';
@@ -342,22 +347,62 @@ function toPage<T>(items: T[], total: number, params: PageQueryParams): Page<T> 
   return { items, total, page: params.page, pageSize: params.pageSize };
 }
 
-function toPrice(row: {
+function toPriceTier(row: {
   id: string;
+  tenantId: string;
   skuId: string;
   channelCode: string;
+  minQty: number;
   amount: number;
   currency: string;
-  effectiveFrom: Date;
-  effectiveTo: Date | null;
-}): PriceList {
+  enabled: boolean;
+}): PriceTier {
   return {
     id: row.id,
+    tenantId: row.tenantId,
     skuId: row.skuId,
     channelCode: row.channelCode,
+    minQty: row.minQty,
     price: { amount: row.amount, currency: row.currency },
-    effectiveFrom: row.effectiveFrom.toISOString(),
-    ...(row.effectiveTo ? { effectiveTo: row.effectiveTo.toISOString() } : {}),
+    enabled: row.enabled,
+  };
+}
+
+function toCategory(row: {
+  id: string;
+  tenantId: string;
+  code: string;
+  name: string;
+  parentId: string | null;
+  sort: number;
+  enabled: boolean;
+}): Category {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    code: row.code,
+    name: row.name,
+    parentId: row.parentId,
+    sort: row.sort,
+    enabled: row.enabled,
+  };
+}
+
+function toWarehouse(row: {
+  id: string;
+  tenantId: string;
+  code: string;
+  name: string;
+  address: string | null;
+  enabled: boolean;
+}): Warehouse {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    code: row.code,
+    name: row.name,
+    ...(row.address ? { address: row.address } : {}),
+    enabled: row.enabled,
   };
 }
 
@@ -499,6 +544,132 @@ export class PrismaDatabase extends DatabasePort {
         currency: price.price.currency,
         effectiveTo: price.effectiveTo ? new Date(price.effectiveTo) : null,
       },
+    });
+  }
+
+  async listPriceTiers(params: PageQueryParams, query?: PriceTierListQuery) {
+    const where = query?.skuId ? { skuId: query.skuId } : {};
+    const [rows, total] = await Promise.all([
+      this.client.priceTier.findMany({ where, orderBy: [{ skuId: 'asc' }, { minQty: 'asc' }], ...pageArgs(params) }),
+      this.client.priceTier.count({ where }),
+    ]);
+    return toPage(rows.map(toPriceTier), total, params);
+  }
+
+  async findPriceTier(id: string) {
+    const row = await this.client.priceTier.findUnique({ where: { id } });
+    return row ? toPriceTier(row) : null;
+  }
+
+  async savePriceTier(tier: PriceTier) {
+    await this.client.priceTier.upsert({
+      where: { id: tier.id },
+      create: {
+        id: tier.id,
+        tenantId: tier.tenantId,
+        skuId: tier.skuId,
+        channelCode: tier.channelCode,
+        minQty: tier.minQty,
+        amount: tier.price.amount,
+        currency: tier.price.currency,
+        enabled: tier.enabled,
+      },
+      update: { minQty: tier.minQty, amount: tier.price.amount, currency: tier.price.currency, enabled: tier.enabled },
+    });
+  }
+
+  async deletePriceTier(id: string) {
+    await this.client.priceTier.delete({ where: { id } });
+  }
+
+  async findBestPriceTier(skuId: string, quantity: number, channelCode: string) {
+    const row = await this.client.priceTier.findFirst({
+      where: { skuId, channelCode, enabled: true, minQty: { lte: quantity } },
+      orderBy: { minQty: 'desc' },
+    });
+    return row ? toPriceTier(row) : null;
+  }
+
+  async listCategories(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.category.findMany({ orderBy: [{ sort: 'asc' }, { createdAt: 'asc' }], ...pageArgs(params) }),
+      this.client.category.count(),
+    ]);
+    return toPage(rows.map(toCategory), total, params);
+  }
+
+  async findCategory(id: string) {
+    const row = await this.client.category.findUnique({ where: { id } });
+    return row ? toCategory(row) : null;
+  }
+
+  async findCategoryByCode(code: string) {
+    const row = await this.client.category.findUnique({ where: { code } });
+    return row ? toCategory(row) : null;
+  }
+
+  async saveCategory(category: Category) {
+    await this.client.category.upsert({
+      where: { id: category.id },
+      create: {
+        id: category.id,
+        tenantId: category.tenantId,
+        code: category.code,
+        name: category.name,
+        parentId: category.parentId,
+        sort: category.sort,
+        enabled: category.enabled,
+      },
+      update: { name: category.name, parentId: category.parentId, sort: category.sort, enabled: category.enabled },
+    });
+  }
+
+  async deleteCategory(id: string) {
+    await this.client.category.delete({ where: { id } });
+  }
+
+  async listCategoryTree() {
+    const rows = await this.client.category.findMany({ orderBy: [{ sort: 'asc' }, { createdAt: 'asc' }] });
+    const nodes = new Map<string, CategoryTreeNode>();
+    for (const row of rows) nodes.set(row.id, { ...toCategory(row), children: [] });
+    const roots: CategoryTreeNode[] = [];
+    for (const node of nodes.values()) {
+      if (node.parentId && nodes.has(node.parentId)) nodes.get(node.parentId)!.children.push(node);
+      else roots.push(node);
+    }
+    return roots;
+  }
+
+  async listWarehouses(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.warehouse.findMany({ orderBy: { createdAt: 'asc' }, ...pageArgs(params) }),
+      this.client.warehouse.count(),
+    ]);
+    return toPage(rows.map(toWarehouse), total, params);
+  }
+
+  async findWarehouse(id: string) {
+    const row = await this.client.warehouse.findUnique({ where: { id } });
+    return row ? toWarehouse(row) : null;
+  }
+
+  async findWarehouseByCode(code: string) {
+    const row = await this.client.warehouse.findUnique({ where: { code } });
+    return row ? toWarehouse(row) : null;
+  }
+
+  async saveWarehouse(warehouse: Warehouse) {
+    await this.client.warehouse.upsert({
+      where: { id: warehouse.id },
+      create: {
+        id: warehouse.id,
+        tenantId: warehouse.tenantId,
+        code: warehouse.code,
+        name: warehouse.name,
+        address: warehouse.address ?? null,
+        enabled: warehouse.enabled,
+      },
+      update: { name: warehouse.name, address: warehouse.address ?? null, enabled: warehouse.enabled },
     });
   }
 

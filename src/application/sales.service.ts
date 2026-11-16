@@ -10,6 +10,7 @@ import type {
 import { DatabasePort, DomainError, PaymentGatewayPort } from '../domain/ports';
 import { nextDocNo } from '../domain/doc-no';
 import { deductReservedForOrder } from '../domain/fulfill';
+import { resolveUnitPrice } from '../domain/pricing';
 import { assertTransition } from '../domain/order-state';
 
 export const TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -42,8 +43,8 @@ export class SalesService {
         const sku = await tx.findSku(item.skuId);
         if (!sku) throw new DomainError('NOT_FOUND', `SKU ${item.skuId} 不存在`, 404);
 
-        const price = await tx.findPriceBySku(sku.id);
-        if (!price) throw new DomainError('NOT_FOUND', `SKU ${sku.id} 未定价`, 404);
+        /** 行价按量取档：先查阶梯价，无档回落 PriceList 现行价 */
+        const { price } = await resolveUnitPrice(tx, sku.id, item.quantity);
 
         const lot = await tx.findLotBySku(sku.id);
         if (!lot || lot.availableQty < item.quantity) {
@@ -54,12 +55,12 @@ export class SalesService {
         lot.reservedQty += item.quantity;
         await tx.saveLot(lot);
 
-        total = addMoney(total, multiplyMoney(price.price, item.quantity));
+        total = addMoney(total, multiplyMoney(price, item.quantity));
         lines.push({
           id: randomUUID(),
           skuId: sku.id,
           quantity: item.quantity,
-          unitPrice: price.price,
+          unitPrice: price,
         });
       }
 

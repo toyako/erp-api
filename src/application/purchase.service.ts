@@ -13,6 +13,7 @@ import type {
 import { DatabasePort, DomainError } from '../domain/ports';
 import { nextDocNo } from '../domain/doc-no';
 import { assertPurchaseTransition } from '../domain/purchase-state';
+import { resolveUnitPrice } from '../domain/pricing';
 import { TENANT_ID } from './sales.service';
 
 @Injectable()
@@ -44,16 +45,16 @@ export class PurchaseService {
         const sku = await tx.findSku(item.skuId);
         if (!sku) throw new DomainError('NOT_FOUND', `SKU ${item.skuId} 不存在`, 404);
 
-        const price = await tx.findPriceBySku(sku.id);
-        if (!price) throw new DomainError('NOT_FOUND', `SKU ${sku.id} 未定价`, 404);
+        /** 行价按量取档：先查阶梯价，无档回落 PriceList 现行价 */
+        const { price } = await resolveUnitPrice(tx, sku.id, item.quantity);
 
-        total = addMoney(total, multiplyMoney(price.price, item.quantity));
+        total = addMoney(total, multiplyMoney(price, item.quantity));
         lines.push({
           id: randomUUID(),
           skuId: sku.id,
           quantity: item.quantity,
           receivedQty: 0,
-          unitPrice: price.price,
+          unitPrice: price,
         });
       }
 

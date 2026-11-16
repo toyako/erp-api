@@ -25,13 +25,19 @@ export class TransferService {
     return found;
   }
 
-  /** 建单校验：SKU 存在、源库位与目标库位不同；建单时不扣库存 */
+  /** 建单校验：SKU 存在、源库位与目标库位不同、两端都须是已启用的仓库；建单时不扣库存 */
   async createTransfer(input: CreateTransferRequest): Promise<Transfer> {
     if (input.fromLocation === input.toLocation) {
       throw new DomainError('INVALID_STATE', '源库位与目标库位不能相同', 400);
     }
     const sku = await this.db.findSku(input.skuId);
     if (!sku) throw new DomainError('NOT_FOUND', `SKU ${input.skuId} 不存在`, 404);
+    for (const location of [input.fromLocation, input.toLocation]) {
+      const warehouse = await this.db.findWarehouseByCode(location);
+      if (!warehouse || !warehouse.enabled) {
+        throw new DomainError('NOT_FOUND', `仓库 ${location} 不存在或已停用`, 400);
+      }
+    }
     const transfer: Transfer = {
       id: randomUUID(),
       tenantId: TENANT_ID,
