@@ -32,6 +32,7 @@ describe("金额值对象", () => {
 
 describe("订单状态机", () => {
   it("允许合法迁移", () => {
+    expect(canTransition(ORDER_TRANSITIONS, "draft", "confirmed")).toBe(true)
     expect(canTransition(ORDER_TRANSITIONS, "confirmed", "paid")).toBe(true)
     expect(canTransition(ORDER_TRANSITIONS, "paid", "fulfilled")).toBe(true)
   })
@@ -52,10 +53,11 @@ describe("SalesService", () => {
     const after = (await db.listLots()).find((lot) => lot.skuId === sku.id)!
 
     expect(order.total.amount).toBe(39800)
-    expect(order.status).toBe("confirmed")
+    expect(order.status).toBe("draft")
     expect(after.reservedQty).toBe(before.reservedQty + 2)
     expect(after.availableQty).toBe(before.availableQty - 2)
     expect(after.totalQty).toBe(before.totalQty)
+    expect((await service.confirmOrder(order.id)).status).toBe("confirmed")
   })
 
   it("库存不足时抛领域异常并回滚事务", async () => {
@@ -77,6 +79,8 @@ describe("SalesService", () => {
     const sku = await firstSku(db)
     const order = await service.createOrder({ lines: [{ skuId: sku.id, quantity: 1 }] })
 
+    await expect(service.payOrder(order.id)).rejects.toBeInstanceOf(DomainError)
+    await service.confirmOrder(order.id)
     expect((await service.payOrder(order.id)).status).toBe("paid")
     expect((await service.fulfillOrder(order.id)).status).toBe("fulfilled")
     await expect(service.payOrder(order.id)).rejects.toBeInstanceOf(DomainError)
