@@ -80,12 +80,24 @@ export class SalesService {
     return order;
   }
 
+  /** 履约：出库扣减——占用量转出库，总量减少，可用量不变（整单同一事务） */
   async fulfillOrder(id: string): Promise<SalesOrder> {
-    const order = await this.requireOrder(id);
-    assertTransition(order.status, 'fulfilled');
-    order.status = 'fulfilled';
-    await this.db.saveOrder(order);
-    return order;
+    return this.db.runInTransaction(async (tx) => {
+      const order = await tx.findOrder(id);
+      if (!order) throw new DomainError('NOT_FOUND', `订单 ${id} 不存在`, 404);
+      assertTransition(order.status, 'fulfilled');
+      for (const line of order.lines) {
+        const lot = await tx.findLotBySku(line.skuId);
+        if (!lot) continue;
+        const consumed = Math.min(line.quantity, lot.reservedQty);
+        lot.reservedQty -= consumed;
+        lot.totalQty -= consumed;
+        await tx.saveLot(lot);
+      }
+      order.status = 'fulfilled';
+      await tx.saveOrder(order);
+      return order;
+    });
   }
 
   /** 草稿单确认：draft -> confirmed，库存已在建单时占用，此处只改状态 */
@@ -97,13 +109,24 @@ export class SalesService {
     return order;
   }
 
-  /** 取消：仅 draft / confirmed 可取消（ORDER_TRANSITIONS 已定义），paid 不可 */
+  /** 取消：仅 draft / confirmed 可取消（ORDER_TRANSITIONS 已定义），paid 不可；取消释放占用库存回可用量，总量不变（整单同一事务） */
   async cancelOrder(id: string): Promise<SalesOrder> {
-    const order = await this.requireOrder(id);
-    assertTransition(order.status, 'cancelled');
-    order.status = 'cancelled';
-    await this.db.saveOrder(order);
-    return order;
+    return this.db.runInTransaction(async (tx) => {
+      const order = await tx.findOrder(id);
+      if (!order) throw new DomainError('NOT_FOUND', `订单 ${id} 不存在`, 404);
+      assertTransition(order.status, 'cancelled');
+      for (const line of order.lines) {
+        const lot = await tx.findLotBySku(line.skuId);
+        if (!lot) continue;
+        const released = Math.min(line.quantity, lot.reservedQty);
+        lot.reservedQty -= released;
+        lot.availableQty += released;
+        await tx.saveLot(lot);
+      }
+      order.status = 'cancelled';
+      await tx.saveOrder(order);
+      return order;
+    });
   }
 
   private async requireOrder(id: string): Promise<SalesOrder> {

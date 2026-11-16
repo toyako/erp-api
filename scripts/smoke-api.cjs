@@ -53,10 +53,17 @@ async function main() {
   const badState = id ? await call(`/sales/orders/${id}/pay`, { method: 'POST' }) : { status: 0, body: {} };
   const oversell = await call('/sales/orders', jsonPost({ lines: [{ skuId: sku.id, quantity: 99999 }] }));
   const afterRollback = await call('/inventory/lots');
+  const afterFulfill = await call('/inventory/lots');
+  const created2 = await call('/sales/orders', jsonPost({ lines: [{ skuId: sku.id, quantity: 1 }] }));
+  const id2 = created2.body.id;
+  const cancelled = id2 ? await call(`/sales/orders/${id2}/cancel`, { method: 'POST' }) : { status: 0, body: {} };
+  const afterCancel = await call('/inventory/lots');
 
   const lotBefore = (before.body.items || [])[0] || {};
   const lotAfter = (after.body.items || [])[0] || {};
   const lotRolled = (afterRollback.body.items || [])[0] || {};
+  const lotFulfilled = (afterFulfill.body.items || [])[0] || {};
+  const lotCancelled = (afterCancel.body.items || [])[0] || {};
 
   const checks = {
     health: health.status === 200 && health.body.status === 'ok',
@@ -72,7 +79,10 @@ async function main() {
     fulfilled: fulfilled.body.status === 'fulfilled',
     terminalStateRejected: badState.status === 409 && badState.body.code === 'INVALID_STATE',
     oversellRejected: oversell.status === 409 && oversell.body.code === 'INSUFFICIENT_STOCK',
-    transactionRollback: lotRolled.reservedQty === lotAfter.reservedQty,
+    transactionRollback: lotRolled.reservedQty === lotFulfilled.reservedQty && lotRolled.totalQty === lotFulfilled.totalQty,
+    fulfillConsumed: lotFulfilled.totalQty === lotBefore.totalQty - 2 && lotFulfilled.reservedQty === (lotBefore.reservedQty || 0),
+    orderCancelled: cancelled.body.status === 'cancelled',
+    cancelReleased: lotCancelled.reservedQty === lotFulfilled.reservedQty && lotCancelled.availableQty === lotFulfilled.availableQty && lotCancelled.totalQty === lotFulfilled.totalQty,
   };
 
   console.log(JSON.stringify({ checks, sample: { orderTotal: created.body.total, reservedQty: lotAfter.reservedQty } }, null, 2));
