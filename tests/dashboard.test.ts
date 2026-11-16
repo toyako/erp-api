@@ -65,7 +65,7 @@ describe("DashboardService", () => {
     await seedOrders(sales, db)
     const o = await dashboard.getOverview()
 
-    expect(o.salesAmount).toBe(139500)
+    expect(o.salesAmount).toBe(119500)
     expect(o.orderCount).toBe(5)
     expect(o.fulfilledCount).toBe(1)
     expect(o.availableStock).toBe(145)
@@ -74,8 +74,8 @@ describe("DashboardService", () => {
     expect(o.statusDist).toHaveLength(5)
     expect(o.statusDist.find((s) => s.status === "draft")?.count).toBe(1)
     expect(o.trend7).toHaveLength(7)
-    expect(o.trend7.reduce((n, d) => n + d.amount, 0)).toBe(139500)
-    expect(o.trend7[6].amount).toBe(139500)
+    expect(o.trend7.reduce((n, d) => n + d.amount, 0)).toBe(119500)
+    expect(o.trend7[6].amount).toBe(119500)
     expect(o.ranking).toHaveLength(2)
     expect(o.ranking[0]).toMatchObject({ code: "SKU-001", qty: 3 })
     expect(o.ranking[1]).toMatchObject({ code: "SKU-002", qty: 2 })
@@ -91,10 +91,10 @@ describe("DashboardService", () => {
 
     expect(r.range).toBe("7d")
     expect(r.buckets).toHaveLength(6)
-    expect(r.buckets.reduce((n, b) => n + b.amount, 0)).toBe(139500)
-    expect(r.buckets[3].amount).toBe(139500)
+    expect(r.buckets.reduce((n, b) => n + b.amount, 0)).toBe(119500)
+    expect(r.buckets[3].amount).toBe(119500)
     expect(r.ranking).toHaveLength(2)
-    expect(r.ranking[0]).toMatchObject({ code: "SKU-002", qty: 2, amount: 79800, change: null })
+    expect(r.ranking[0]).toMatchObject({ code: "SKU-002", qty: 2, amount: 59800, change: null })
     expect(r.ranking[1]).toMatchObject({ code: "SKU-001", qty: 3, amount: 59700, change: null })
     expect(r.turnover).toHaveLength(2)
     expect(r.turnover[0]).toMatchObject({ name: "SKU-002 · 专业版", stock: 50, days: 175, pct: 77 })
@@ -102,9 +102,9 @@ describe("DashboardService", () => {
     expect(r.slow).toEqual([])
 
     const r30 = await dashboard.getReport("30d")
-    expect(r30.buckets.reduce((n, b) => n + b.amount, 0)).toBe(139500)
+    expect(r30.buckets.reduce((n, b) => n + b.amount, 0)).toBe(119500)
     const rm = await dashboard.getReport("month")
-    expect(rm.buckets.reduce((n, b) => n + b.amount, 0)).toBe(139500)
+    expect(rm.buckets.reduce((n, b) => n + b.amount, 0)).toBe(119500)
   })
 
   it("待办派生、过滤与分页", async () => {
@@ -146,10 +146,10 @@ describe("DashboardService", () => {
     await seedPurchaseOrders(purchase, db)
     const f = await dashboard.getFinanceSummary()
 
-    expect(f.receivable).toBe(39900)
+    expect(f.receivable).toBe(29900)
     expect(f.payable).toBe(39800)
-    expect(f.receivedThisMonth).toBe(79700)
-    expect(f.paidThisMonth).toBe(39900)
+    expect(f.receivedThisMonth).toBe(69700)
+    expect(f.paidThisMonth).toBe(29900)
   })
 
   it("应收行只含已确认及以上状态，已结清与未核销分开", async () => {
@@ -160,13 +160,46 @@ describe("DashboardService", () => {
     expect(page.total).toBe(3)
     const byId = new Map(page.items.map((r) => [r.id, r]))
     expect(byId.get(fulfilled.id)).toMatchObject({ settled: 39800, unsettled: 0 })
-    expect(byId.get(confirmed.id)).toMatchObject({ settled: 0, unsettled: 39900 })
-    expect(byId.get(paid.id)).toMatchObject({ settled: 39900, unsettled: 0 })
+    expect(byId.get(confirmed.id)).toMatchObject({ settled: 0, unsettled: 29900 })
+    expect(byId.get(paid.id)).toMatchObject({ settled: 29900, unsettled: 0 })
     expect(page.items.every((r) => r.currency === "CNY")).toBe(true)
 
     const p2 = await dashboard.listReceivables({ page: 2, pageSize: 2 })
     expect(p2.items).toHaveLength(1)
     expect(p2.total).toBe(3)
+  })
+
+  it("应付行只含草稿/已提交/已入库采购单，已付与未付分开", async () => {
+    const { purchase, db, dashboard } = makeDashboard()
+    const { draftPo, receivedPo, submittedPo } = await seedPurchaseOrders(purchase, db)
+    const page = await dashboard.listPayables({ page: 1, pageSize: 20 })
+
+    expect(page.total).toBe(3)
+    const byId = new Map(page.items.map((r) => [r.id, r]))
+    expect(byId.get(draftPo.id)).toMatchObject({ orderNo: draftPo.orderNo, status: "draft", amount: 19900, settled: 0, unsettled: 19900 })
+    expect(byId.get(submittedPo.id)).toMatchObject({ orderNo: submittedPo.orderNo, status: "submitted", amount: 19900, settled: 0, unsettled: 19900 })
+    expect(byId.get(receivedPo.id)).toMatchObject({ orderNo: receivedPo.orderNo, status: "received", amount: 29900, settled: 29900, unsettled: 0 })
+    expect(page.items.every((r) => r.currency === "CNY")).toBe(true)
+
+    const p2 = await dashboard.listPayables({ page: 2, pageSize: 2 })
+    expect(p2.items).toHaveLength(1)
+    expect(p2.total).toBe(3)
+  })
+
+  it("采购待办：只有已提交采购单进待办，草稿与已入库不进", async () => {
+    const { purchase, db, dashboard } = makeDashboard()
+    const { draftPo, receivedPo, submittedPo } = await seedPurchaseOrders(purchase, db)
+
+    const all = await dashboard.listTodos({ page: 1, pageSize: 20, type: "purchase" })
+    expect(all.total).toBe(1)
+    expect(all.items[0]).toMatchObject({ type: "purchase", typeLabel: "采购", title: "采购单待入库", refNo: submittedPo.orderNo, done: false, action: "去入库", to: "/erp/purchase/orders" })
+
+    const pending = await dashboard.listTodos({ page: 1, pageSize: 20, status: "pending" })
+    // 注意：三单同一毫秒建，orderNo 可能相同，按待办 id（带采购单 id）断言才准确
+    const purchaseIds = pending.items.filter((i) => i.type === "purchase").map((i) => i.id)
+    expect(purchaseIds).toEqual([`po-${submittedPo.id}`])
+    expect(purchaseIds).not.toContain(`po-${draftPo.id}`)
+    expect(purchaseIds).not.toContain(`po-${receivedPo.id}`)
   })
 
   it("最近活动取前 5 单", async () => {

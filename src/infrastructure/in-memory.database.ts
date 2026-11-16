@@ -9,6 +9,7 @@ import type {
   Rma,
   SalesOrder,
   Sku,
+  Spu,
   Stocktake,
   Supplier,
   Transfer,
@@ -20,6 +21,7 @@ import { TENANT_ID } from '../application/sales.service';
 interface State {
   credentials: Record<string, string>;
   principals: Principal[];
+  spus: Spu[];
   skus: Sku[];
   prices: PriceList[];
   lots: InventoryLot[];
@@ -32,6 +34,7 @@ interface State {
   stocktakes: Stocktake[];
 }
 
+const spuId = '00000000-0000-4000-8000-000000000100';
 const skuA = '00000000-0000-4000-8000-000000000101';
 const skuB = '00000000-0000-4000-8000-000000000102';
 
@@ -41,13 +44,16 @@ function seed(): State {
     { id: '00000000-0000-4000-8000-000000000012', tenantId: TENANT_ID, username: 'sales', displayName: '销售', roles: ['sales'] },
     { id: '00000000-0000-4000-8000-000000000013', tenantId: TENANT_ID, username: 'viewer', displayName: '只读', roles: ['readonly'] },
   ];
+  const spus: Spu[] = [
+    { id: spuId, tenantId: TENANT_ID, name: '云智物标准套件', categoryCode: 'SOFTWARE', description: '演示商品，数据全部虚构', enabled: true },
+  ];
   const skus: Sku[] = [
-    { id: skuA, spuId: '00000000-0000-4000-8000-000000000100', code: 'SKU-001', spec: '标准版', unit: '件', enabled: true },
-    { id: skuB, spuId: '00000000-0000-4000-8000-000000000100', code: 'SKU-002', spec: '专业版', unit: '件', enabled: true },
+    { id: skuA, spuId, code: 'SKU-001', spec: '标准版', unit: '件', enabled: true },
+    { id: skuB, spuId, code: 'SKU-002', spec: '专业版', unit: '件', enabled: true },
   ];
   const prices: PriceList[] = [
     { id: '00000000-0000-4000-8000-000000000301', skuId: skuA, channelCode: 'default', price: { amount: 19900, currency: 'CNY' }, effectiveFrom: '2026-01-01T00:00:00.000Z' },
-    { id: '00000000-0000-4000-8000-000000000302', skuId: skuB, channelCode: 'default', price: { amount: 39900, currency: 'CNY' }, effectiveFrom: '2026-01-01T00:00:00.000Z' },
+    { id: '00000000-0000-4000-8000-000000000302', skuId: skuB, channelCode: 'default', price: { amount: 29900, currency: 'CNY' }, effectiveFrom: '2026-01-01T00:00:00.000Z' },
   ];
   const lots: InventoryLot[] = [
     { id: '00000000-0000-4000-8000-000000000201', tenantId: TENANT_ID, skuId: skuA, batchCode: 'BATCH-001', location: DEFAULT_LOCATION, availableQty: 100, reservedQty: 0, totalQty: 100 },
@@ -73,6 +79,7 @@ function seed(): State {
   return {
     credentials: { admin: 'demo1234', sales: 'demo1234', viewer: 'demo1234' },
     principals,
+    spus,
     skus,
     prices,
     lots,
@@ -106,7 +113,25 @@ export class InMemoryDatabase extends DatabasePort {
   async findPasswordHash(username: string) {
     return username in this.state.credentials ? this.state.credentials[username] ?? null : null;
   }
+  async findPrincipal(id: string) {
+    const found = this.state.principals.find((p) => p.id === id);
+    return found ? { ...found } : null;
+  }
+  async savePrincipal(principal: Principal, passwordHash: string) {
+    const i = this.state.principals.findIndex((p) => p.id === principal.id);
+    if (i >= 0) this.state.principals[i] = { ...principal };
+    else this.state.principals.push({ ...principal });
+    this.state.credentials[principal.username] = passwordHash;
+  }
   async listPrincipals(params: PageQueryParams) { return pageOf(this.state.principals.map((p) => ({ ...p })), params); }
+  async listSpus(params: PageQueryParams) {
+    const sorted = [...this.state.spus].sort((a, b) => a.name.localeCompare(b.name));
+    return pageOf(sorted.map((s) => ({ ...s })), params);
+  }
+  async findSpu(id: string) {
+    const found = this.state.spus.find((s) => s.id === id);
+    return found ? { ...found } : null;
+  }
   async listSkus(params: PageQueryParams) { return pageOf(this.state.skus.map((s) => ({ ...s })), params); }
   async findSku(id: string) {
     const found = this.state.skus.find((s) => s.id === id);
@@ -118,9 +143,28 @@ export class InMemoryDatabase extends DatabasePort {
     if (i >= 0) this.state.skus[i] = copy;
     else this.state.skus.push(copy);
   }
+  /** 与 Prisma 适配器同口径：取未截止记录中生效最晚的一条 */
   async findPriceBySku(skuId: string) {
-    const found = this.state.prices.find((p) => p.skuId === skuId);
+    const found = this.state.prices
+      .filter((p) => p.skuId === skuId && !p.effectiveTo)
+      .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
     return found ? { ...found } : null;
+  }
+  async listPrices(params: PageQueryParams) {
+    const sorted = [...this.state.prices].sort(
+      (a, b) => a.skuId.localeCompare(b.skuId) || b.effectiveFrom.localeCompare(a.effectiveFrom),
+    );
+    return pageOf(sorted.map((p) => ({ ...p })), params);
+  }
+  async findPrice(id: string) {
+    const found = this.state.prices.find((p) => p.id === id);
+    return found ? { ...found } : null;
+  }
+  async savePrice(price: PriceList) {
+    const i = this.state.prices.findIndex((p) => p.id === price.id);
+    const copy = { ...price };
+    if (i >= 0) this.state.prices[i] = copy;
+    else this.state.prices.push(copy);
   }
   async listLots(params: PageQueryParams) { return pageOf(this.state.lots.map((l) => ({ ...l })), params); }
   async findLot(id: string) {

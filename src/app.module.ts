@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { IamService } from './application/iam.service';
 import { CustomerService } from './application/customer.service';
 import { DashboardService } from './application/dashboard.service';
+import { ProductService } from './application/product.service';
 import { PurchaseService } from './application/purchase.service';
 import { RmaService } from './application/rma.service';
 import { SalesService } from './application/sales.service';
@@ -28,6 +29,7 @@ function createDatabase(): DatabasePort {
     IamService,
     SalesService,
     PurchaseService,
+    ProductService,
     CustomerService,
     RmaService,
     TransferService,

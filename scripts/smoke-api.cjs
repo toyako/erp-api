@@ -40,6 +40,22 @@ async function main() {
   const skus = await call('/products/skus');
   const sku = skus.body.items && skus.body.items[0];
   if (!sku) throw new Error('no seed SKU');
+  const skuB = skus.body.items && skus.body.items[1];
+  if (!skuB) throw new Error('no second seed SKU');
+  const spus = await call('/products/spus');
+  const spu = spus.body.items && spus.body.items[0];
+  if (!spu) throw new Error('no seed SPU');
+
+  // 新建 SKU：成功 + 编码重复 409；价格档案：列表 + 新建（用 SKU-002，避免改 SKU-001 的定价影响后续订单金额断言）
+  const skuCreated = await call('/products/skus', jsonPost({ spuId: spu.id, code: 'SKU-SMOKE', spec: '冒烟版', unit: '件' }));
+  const skuDuplicate = await call('/products/skus', jsonPost({ spuId: spu.id, code: 'SKU-SMOKE', spec: '重复', unit: '件' }));
+  const prices = await call('/products/prices');
+  const priceCreated = await call('/products/prices', jsonPost({ skuId: skuB.id, price: { amount: 31900, currency: 'CNY' } }));
+
+  // 用户管理：新建用户 + 新用户能登录
+  const principalCreated = await call('/iam/principals', jsonPost({ username: 'smoke', password: 'smoke123', displayName: '冒烟用户', roles: ['sales'] }));
+  const smokeLogin = principalCreated.body.id ? await call('/auth/login', jsonPost({ username: 'smoke', password: 'smoke123' })) : { status: 0, body: {} };
+  const principals = await call('/iam/principals');
 
   const customers = await call('/customers');
   const newCustomer = await call('/customers', jsonPost({ code: 'CUST-SMOKE', name: '冒烟客户', level: 'vip' }));
@@ -95,6 +111,7 @@ async function main() {
   const financeSummary = await call('/dashboard/finance-summary');
   const todos = await call('/dashboard/todos?page=1&pageSize=2');
   const receivables = await call('/dashboard/receivables?page=1&pageSize=2');
+  const payables = await call('/dashboard/payables?page=1&pageSize=2');
   const activity = await call('/dashboard/recent-activity');
   const movements = await call('/dashboard/movements?page=1&pageSize=2');
 
@@ -108,6 +125,14 @@ async function main() {
     health: health.status === 200 && health.body.status === 'ok',
     login: login.status === 201 && Boolean(login.body.accessToken),
     seedSkus: (skus.body.items || []).length >= 2,
+    spusListed: spus.status === 200 && (spus.body.items || []).length >= 1,
+    skuCreated: skuCreated.status === 201 && skuCreated.body.code === 'SKU-SMOKE' && skuCreated.body.enabled === true,
+    skuDuplicateRejected: skuDuplicate.status === 409 && skuDuplicate.body.code === 'CONFLICT',
+    pricesListed: prices.status === 200 && Array.isArray(prices.body.items) && (prices.body.items || []).length >= 2,
+    priceCreated: priceCreated.status === 201 && priceCreated.body.price && priceCreated.body.price.amount === 31900,
+    principalCreated: principalCreated.status === 201 && principalCreated.body.username === 'smoke',
+    smokeLogin: smokeLogin.status === 201 && Boolean(smokeLogin.body.accessToken),
+    principalsListed: principals.status === 200 && principals.body.total >= 4,
     customersList: customers.status === 200 && Array.isArray(customers.body.items),
     customerCreated: newCustomer.status === 201 && newCustomer.body.code === 'CUST-SMOKE' && newCustomer.body.totalSpent && newCustomer.body.totalSpent.amount === 0,
     customerTotalSpent: gotCustomer.status === 200 && gotCustomer.body.totalSpent && typeof gotCustomer.body.totalSpent.amount === 'number',
@@ -130,6 +155,7 @@ async function main() {
     dashboardFinance: financeSummary.status === 200 && ['receivable', 'payable', 'receivedThisMonth', 'paidThisMonth'].every((k) => typeof financeSummary.body[k] === 'number') && financeSummary.body.receivedThisMonth >= 39800,
     dashboardTodosPaged: todos.status === 200 && todos.body.total >= 2 && (todos.body.items || []).length <= 2,
     dashboardReceivablesPaged: receivables.status === 200 && receivables.body.total >= 1 && (receivables.body.items || []).length >= 1,
+    dashboardPayablesPaged: payables.status === 200 && Array.isArray(payables.body.items),
     dashboardActivity: activity.status === 200 && Array.isArray(activity.body) && activity.body.length >= 2,
     dashboardMovementsPaged: movements.status === 200 && movements.body.total >= 1 && (movements.body.items || []).length <= 2,
     rmaListed: rmaList.status === 200 && Array.isArray(rmaList.body.items),

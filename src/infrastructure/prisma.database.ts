@@ -12,6 +12,7 @@ import type {
   Role,
   SalesOrder,
   Sku,
+  Spu,
   Stocktake,
   Supplier,
   Transfer,
@@ -51,6 +52,24 @@ function toSku(row: {
     code: row.code,
     spec: row.spec,
     unit: row.unit,
+    enabled: row.enabled,
+  };
+}
+
+function toSpu(row: {
+  id: string;
+  tenantId: string;
+  name: string;
+  categoryCode: string;
+  description: string | null;
+  enabled: boolean;
+}): Spu {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    name: row.name,
+    categoryCode: row.categoryCode,
+    ...(row.description !== null ? { description: row.description } : {}),
     enabled: row.enabled,
   };
 }
@@ -257,12 +276,45 @@ export class PrismaDatabase extends DatabasePort {
     return row?.passwordHash ?? null;
   }
 
+  async findPrincipal(id: string) {
+    const row = await this.client.principal.findUnique({ where: { id } });
+    return row ? toPrincipal(row) : null;
+  }
+
+  async savePrincipal(principal: Principal, passwordHash: string) {
+    await this.client.principal.upsert({
+      where: { id: principal.id },
+      create: {
+        id: principal.id,
+        tenantId: principal.tenantId,
+        username: principal.username,
+        displayName: principal.displayName,
+        roles: [...principal.roles],
+        passwordHash,
+      },
+      update: { displayName: principal.displayName, roles: [...principal.roles], passwordHash },
+    });
+  }
+
   async listPrincipals(params: PageQueryParams) {
     const [rows, total] = await Promise.all([
       this.client.principal.findMany({ orderBy: { username: 'asc' }, ...pageArgs(params) }),
       this.client.principal.count(),
     ]);
     return toPage(rows.map(toPrincipal), total, params);
+  }
+
+  async listSpus(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.spu.findMany({ orderBy: { name: 'asc' }, ...pageArgs(params) }),
+      this.client.spu.count(),
+    ]);
+    return toPage(rows.map(toSpu), total, params);
+  }
+
+  async findSpu(id: string) {
+    const row = await this.client.spu.findUnique({ where: { id } });
+    return row ? toSpu(row) : null;
   }
 
   async listSkus(params: PageQueryParams) {
@@ -299,6 +351,42 @@ export class PrismaDatabase extends DatabasePort {
       orderBy: { effectiveFrom: 'desc' },
     });
     return row ? toPrice(row) : null;
+  }
+
+  async listPrices(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.priceList.findMany({
+        orderBy: [{ skuId: 'asc' }, { effectiveFrom: 'desc' }],
+        ...pageArgs(params),
+      }),
+      this.client.priceList.count(),
+    ]);
+    return toPage(rows.map(toPrice), total, params);
+  }
+
+  async findPrice(id: string) {
+    const row = await this.client.priceList.findUnique({ where: { id } });
+    return row ? toPrice(row) : null;
+  }
+
+  async savePrice(price: PriceList) {
+    await this.client.priceList.upsert({
+      where: { id: price.id },
+      create: {
+        id: price.id,
+        skuId: price.skuId,
+        channelCode: price.channelCode,
+        amount: price.price.amount,
+        currency: price.price.currency,
+        effectiveFrom: new Date(price.effectiveFrom),
+        effectiveTo: price.effectiveTo ? new Date(price.effectiveTo) : null,
+      },
+      update: {
+        amount: price.price.amount,
+        currency: price.price.currency,
+        effectiveTo: price.effectiveTo ? new Date(price.effectiveTo) : null,
+      },
+    });
   }
 
   async listLots(params: PageQueryParams) {

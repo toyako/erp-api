@@ -1,8 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import { LoginRequestSchema, type LoginResponse, type PageQueryParams, type Principal } from '@erp/contracts';
+import { randomUUID } from 'node:crypto';
+import {
+  LoginRequestSchema,
+  type CreatePrincipalRequest,
+  type LoginResponse,
+  type PageQueryParams,
+  type Principal,
+  type UpdatePrincipalRequest,
+} from '@erp/contracts';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { DatabasePort, DomainError } from '../domain/ports';
+import { TENANT_ID } from './sales.service';
 
 const TOKEN_TTL_SECONDS = 3600;
 
@@ -79,5 +88,47 @@ export class IamService {
 
   listPrincipals(params: PageQueryParams) {
     return this.db.listPrincipals(params);
+  }
+
+  async createPrincipal(input: CreatePrincipalRequest): Promise<Principal> {
+    const existing = await this.db.findPrincipalByUsername(input.username);
+    if (existing) throw new DomainError('CONFLICT', `用户名 ${input.username} 已存在`, 409);
+    const principal: Principal = {
+      id: randomUUID(),
+      tenantId: TENANT_ID,
+      username: input.username,
+      displayName: input.displayName,
+      roles: input.roles,
+    };
+    const passwordHash = await bcrypt.hash(input.password, 10);
+    await this.db.savePrincipal(principal, passwordHash);
+    return principal;
+  }
+
+  /**
+   * 改用户：姓名 / 角色 / 密码按需改，用户名不可改；Principal 没有 enabled 字段，
+   * 不提供启用/停用。改密码即时生效（下次登录用新密码；旧令牌仍在有效期内）。
+   */
+  async updatePrincipal(id: string, input: UpdatePrincipalRequest): Promise<Principal> {
+    const found = await this.db.findPrincipal(id);
+    if (!found) throw new DomainError('NOT_FOUND', `用户 ${id} 不存在`, 404);
+    if (input.displayName === undefined && input.roles === undefined && input.password === undefined) {
+      throw new DomainError('INVALID_STATE', '没有要修改的字段', 400);
+    }
+    const merged: Principal = {
+      ...found,
+      displayName: input.displayName ?? found.displayName,
+      roles: input.roles ?? found.roles,
+    };
+    let passwordHash: string;
+    if (input.password !== undefined) {
+      passwordHash = await bcrypt.hash(input.password, 10);
+    } else {
+      const stored = await this.db.findPasswordHash(found.username);
+      if (!stored) throw new DomainError('INVALID_STATE', `用户 ${found.username} 没有口令记录`, 500);
+      passwordHash = stored;
+    }
+    await this.db.savePrincipal(merged, passwordHash);
+    return merged;
   }
 }

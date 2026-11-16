@@ -8,6 +8,7 @@ import type {
   Rma,
   SalesOrder,
   Sku,
+  Spu,
   Stocktake,
   Supplier,
   Transfer,
@@ -45,11 +46,19 @@ export abstract class DatabasePort {
   abstract findPrincipalByUsername(username: string): Promise<Principal | null>;
   /** 仅供认证校验，不通过契约对外暴露 */
   abstract findPasswordHash(username: string): Promise<string | null>;
+  abstract findPrincipal(id: string): Promise<Principal | null>;
+  /** 新建/改用户时一并写口令 hash；改用户不改密码时调用方传现存 hash */
+  abstract savePrincipal(principal: Principal, passwordHash: string): Promise<void>;
   abstract listPrincipals(params: PageQueryParams): Promise<Page<Principal>>;
+  abstract listSpus(params: PageQueryParams): Promise<Page<Spu>>;
+  abstract findSpu(id: string): Promise<Spu | null>;
   abstract listSkus(params: PageQueryParams): Promise<Page<Sku>>;
   abstract findSku(id: string): Promise<Sku | null>;
   abstract saveSku(sku: Sku): Promise<void>;
   abstract findPriceBySku(skuId: string): Promise<PriceList | null>;
+  abstract listPrices(params: PageQueryParams): Promise<Page<PriceList>>;
+  abstract findPrice(id: string): Promise<PriceList | null>;
+  abstract savePrice(price: PriceList): Promise<void>;
   abstract listLots(params: PageQueryParams): Promise<Page<InventoryLot>>;
   abstract findLot(id: string): Promise<InventoryLot | null>;
   abstract findLotBySku(skuId: string): Promise<InventoryLot | null>;

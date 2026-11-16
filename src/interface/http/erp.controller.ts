@@ -3,8 +3,11 @@ import { Body, Controller, Get, Headers, Param, Patch, Post, Query } from '@nest
 import {
   CreateCustomerRequestSchema,
   CreateOrderRequestSchema,
+  CreatePriceRequestSchema,
+  CreatePrincipalRequestSchema,
   CreatePurchaseOrderRequestSchema,
   CreateRmaRequestSchema,
+  CreateSkuRequestSchema,
   CreateStocktakeRequestSchema,
   CreateSupplierRequestSchema,
   CreateTransferRequestSchema,
@@ -14,12 +17,17 @@ import {
   ReportQuerySchema,
   TodoListQuerySchema,
   UpdateCustomerRequestSchema,
+  UpdatePriceRequestSchema,
+  UpdatePrincipalRequestSchema,
   UpdateSkuRequestSchema,
   UpdateSupplierRequestSchema,
   type CreateCustomerRequest,
   type CreateOrderRequest,
+  type CreatePriceRequest,
+  type CreatePrincipalRequest,
   type CreatePurchaseOrderRequest,
   type CreateRmaRequest,
+  type CreateSkuRequest,
   type CreateStocktakeRequest,
   type CreateSupplierRequest,
   type CreateTransferRequest,
@@ -31,12 +39,15 @@ import {
   type Supplier,
   type TodoListQuery,
   type UpdateCustomerRequest,
+  type UpdatePriceRequest,
+  type UpdatePrincipalRequest,
   type UpdateSkuRequest,
   type UpdateSupplierRequest,
 } from '@erp/contracts';
 import { IamService } from '../../application/iam.service';
 import { CustomerService } from '../../application/customer.service';
 import { DashboardService } from '../../application/dashboard.service';
+import { ProductService } from '../../application/product.service';
 import { PurchaseService } from '../../application/purchase.service';
 import { RmaService } from '../../application/rma.service';
 import { SalesService, TENANT_ID } from '../../application/sales.service';
@@ -51,6 +62,7 @@ export class ErpController {
     private readonly iam: IamService,
     private readonly sales: SalesService,
     private readonly purchase: PurchaseService,
+    private readonly product: ProductService,
     private readonly customer: CustomerService,
     private readonly rma: RmaService,
     private readonly transfer: TransferService,
@@ -94,6 +106,13 @@ export class ErpController {
     @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
   ) {
     return this.dashboard.listReceivables(query);
+  }
+
+  @Get('dashboard/payables')
+  payables(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.dashboard.listPayables(query);
   }
 
   @Get('dashboard/recent-activity')
@@ -227,11 +246,41 @@ export class ErpController {
     return this.iam.listPrincipals(query);
   }
 
+  @Post('iam/principals')
+  createPrincipal(
+    @Body(new ZodValidationPipe(CreatePrincipalRequestSchema)) body: CreatePrincipalRequest,
+  ) {
+    return this.iam.createPrincipal(body);
+  }
+
+  /** 改用户：姓名 / 角色 / 密码按需改，用户名不可改 */
+  @Patch('iam/principals/:id')
+  updatePrincipal(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdatePrincipalRequestSchema)) body: UpdatePrincipalRequest,
+  ) {
+    return this.iam.updatePrincipal(id, body);
+  }
+
+  @Get('products/spus')
+  async spus(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.product.listSpus(query);
+  }
+
   @Get('products/skus')
   async skus(
     @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
   ) {
     return this.db.listSkus(query);
+  }
+
+  @Post('products/skus')
+  createSku(
+    @Body(new ZodValidationPipe(CreateSkuRequestSchema)) body: CreateSkuRequest,
+  ) {
+    return this.product.createSku(body);
   }
 
   /** SKU 编辑/上下架：照抄供应商内联模式，找不到报 404 */
@@ -250,6 +299,29 @@ export class ErpController {
     };
     await this.db.saveSku(merged);
     return merged;
+  }
+
+  @Get('products/prices')
+  async prices(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.product.listPrices(query);
+  }
+
+  @Post('products/prices')
+  createPrice(
+    @Body(new ZodValidationPipe(CreatePriceRequestSchema)) body: CreatePriceRequest,
+  ) {
+    return this.product.createPrice(body);
+  }
+
+  /** 改价：只改金额与/或截止时间 */
+  @Patch('products/prices/:id')
+  updatePrice(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdatePriceRequestSchema)) body: UpdatePriceRequest,
+  ) {
+    return this.product.updatePrice(id, body);
   }
 
   @Get('inventory/lots')

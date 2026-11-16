@@ -5,6 +5,7 @@ import type {
   MovementRow,
   OverviewSummary,
   PageQueryParams,
+  PayableRow,
   RecentActivity,
   ReceivableRow,
   ReportRange,
@@ -250,9 +251,9 @@ export class DashboardService {
     return { range, buckets, ranking, turnover, slow };
   }
 
-  /** 待办派生：订单按状态一条、退货待审核一条、调拨待完成一条、盘点待确认一条、可用量 < 20 的批次一条预警；先过滤再分页 */
+  /** 待办派生：订单按状态一条、退货待审核一条、调拨待完成一条、盘点待确认一条、已提交采购单待入库一条、可用量 < 20 的批次一条预警；先过滤再分页 */
   async listTodos(query: TodoListQuery): Promise<Page<TodoItem>> {
-    const { orders, lots, rmas, transfers, stocktakes } = await this.loadAll();
+    const { orders, lots, rmas, transfers, stocktakes, purchaseOrders } = await this.loadAll();
     const items: TodoItem[] = [];
     for (const o of orders) {
       if (o.status === 'paid') {
@@ -286,6 +287,11 @@ export class DashboardService {
     for (const s of stocktakes) {
       if (s.status === 'draft') {
         items.push({ id: `stk-${s.id}`, type: 'stocktake', typeLabel: '盘点', cls: 'orange', title: '盘点待确认', refNo: s.stocktakeNo, actor: '系统', time: s.createdAt, done: false, action: '去确认', to: '/erp/stock/transfer' });
+      }
+    }
+    for (const p of purchaseOrders) {
+      if (p.status === 'submitted') {
+        items.push({ id: `po-${p.id}`, type: 'purchase', typeLabel: '采购', cls: 'orange', title: '采购单待入库', refNo: p.orderNo, actor: '系统', time: p.createdAt, done: false, action: '去入库', to: '/erp/purchase/orders' });
       }
     }
     items.sort((a, b) => Number(a.done) - Number(b.done) || b.time.localeCompare(a.time));
@@ -331,6 +337,25 @@ export class DashboardService {
         currency: o.total.currency,
         settled: o.status === 'confirmed' ? 0 : o.total.amount,
         unsettled: o.status === 'confirmed' ? o.total.amount : 0,
+        createdAt: o.createdAt,
+      }))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return paginate(rows, params);
+  }
+
+  /** 应付明细：与 listReceivables 镜像；草稿/已提交未付，已入库视为已付 */
+  async listPayables(params: PageQueryParams): Promise<Page<PayableRow>> {
+    const { purchaseOrders } = await this.loadAll();
+    const rows = purchaseOrders
+      .filter((o) => o.status === 'draft' || o.status === 'submitted' || o.status === 'received')
+      .map((o) => ({
+        id: o.id,
+        orderNo: o.orderNo,
+        status: o.status,
+        amount: o.total.amount,
+        currency: o.total.currency,
+        settled: o.status === 'received' ? o.total.amount : 0,
+        unsettled: o.status === 'received' ? 0 : o.total.amount,
         createdAt: o.createdAt,
       }))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
