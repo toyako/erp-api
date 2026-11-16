@@ -46,6 +46,8 @@ async function main() {
   const after = await call('/inventory/lots');
   const id = created.body.id;
 
+  const draftPay = id ? await call(`/sales/orders/${id}/pay`, { method: 'POST' }) : { status: 0, body: {} };
+  const confirmed = id ? await call(`/sales/orders/${id}/confirm`, { method: 'POST' }) : { status: 0, body: {} };
   const paid = id ? await call(`/sales/orders/${id}/pay`, { method: 'POST' }) : { status: 0, body: {} };
   const fulfilled = id ? await call(`/sales/orders/${id}/fulfill`, { method: 'POST' }) : { status: 0, body: {} };
   const badState = id ? await call(`/sales/orders/${id}/pay`, { method: 'POST' }) : { status: 0, body: {} };
@@ -60,10 +62,12 @@ async function main() {
     health: health.status === 200 && health.body.status === 'ok',
     login: login.status === 201 && Boolean(login.body.accessToken),
     seedSkus: (skus.body.items || []).length >= 2,
-    orderCreated: created.status === 201 && created.body.status === 'confirmed',
+    orderCreated: created.status === 201 && created.body.status === 'draft',
     serverSidePricing: created.body.total && created.body.total.amount === 39800,
     stockReserved: lotAfter.reservedQty === (lotBefore.reservedQty || 0) + 2,
     totalUnchanged: lotAfter.totalQty === lotBefore.totalQty,
+    draftPayRejected: draftPay.status === 409 && draftPay.body.code === 'INVALID_STATE',
+    orderConfirmed: confirmed.body.status === 'confirmed',
     paid: paid.body.status === 'paid',
     fulfilled: fulfilled.body.status === 'fulfilled',
     terminalStateRejected: badState.status === 409 && badState.body.code === 'INVALID_STATE',
