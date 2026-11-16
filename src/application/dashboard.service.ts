@@ -32,13 +32,17 @@ function todayUtc(): string {
 
 /** 'YYYY-MM-DD'（UTC）加减天数 */
 function addDays(date: string, days: number): string {
-  const [y, m, d] = date.split('-').map(Number);
+  const y = Number(date.slice(0, 4));
+  const m = Number(date.slice(5, 7));
+  const d = Number(date.slice(8, 10));
   return new Date(Date.UTC(y, m - 1, d) + days * DAY_MS).toISOString().slice(0, 10);
 }
 
 /** 'YYYY-MM-DD' 当天 00:00 UTC 的毫秒时间戳 */
 function dayStartMs(date: string): number {
-  const [y, m, d] = date.split('-').map(Number);
+  const y = Number(date.slice(0, 4));
+  const m = Number(date.slice(5, 7));
+  const d = Number(date.slice(8, 10));
   return Date.UTC(y, m - 1, d);
 }
 
@@ -174,7 +178,8 @@ export class DashboardService {
     }));
     for (const o of curOrders) {
       const idx = Math.min(5, Math.floor((new Date(o.createdAt).getTime() - startMs) / (DAY_MS * size)));
-      buckets[idx].amount += o.total.amount;
+      const bucket = buckets[idx];
+      if (bucket) bucket.amount += o.total.amount;
     }
 
     const cur = new Map<string, { qty: number; amount: number }>();
