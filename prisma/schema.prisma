@@ -236,6 +236,26 @@ model ShipmentLine {
   @@map("shipment_lines")
 }
 
+/// 发票：一单可开多张，累计金额不超过订单总额；只限已付款/已完成订单
+model Invoice {
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  invoiceNo  String    @unique @map("invoice_no")
+  orderId    String    @map("order_id")
+  orderNo    String    @map("order_no")
+  customerId String?   @map("customer_id")
+  amount     Int
+  currency   String    @db.Char(3)
+  type       String
+  title      String
+  status     String
+  createdAt  DateTime  @default(now()) @map("created_at")
+  issuedAt   DateTime? @map("issued_at")
+
+  @@index([tenantId, status])
+  @@map("invoices")
+}
+
 /// 调拨：在两个仓库/库位之间移动一个 SKU 的库存；batch_code 为完成时实际动用的源批次
 model Transfer {
   id            String    @id @default(uuid())

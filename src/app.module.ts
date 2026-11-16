@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { IamService } from './application/iam.service';
 import { CustomerService } from './application/customer.service';
 import { DashboardService } from './application/dashboard.service';
+import { InvoiceService } from './application/invoice.service';
 import { ProductService } from './application/product.service';
 import { PurchaseService } from './application/purchase.service';
 import { RmaService } from './application/rma.service';
@@ -37,6 +38,7 @@ function createDatabase(): DatabasePort {
     CustomerService,
     RmaService,
     ShipmentService,
+    InvoiceService,
     TransferService,
     StocktakeService,
     DashboardService,

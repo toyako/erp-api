@@ -5,6 +5,7 @@ import type {
   AuditEventListQuery,
   Customer,
   InventoryLot,
+  Invoice,
   OrderLine,
   PageQueryParams,
   PriceList,
@@ -207,6 +208,37 @@ function toShipment(
     createdAt: row.createdAt.toISOString(),
     shippedAt: row.shippedAt ? row.shippedAt.toISOString() : null,
     deliveredAt: row.deliveredAt ? row.deliveredAt.toISOString() : null,
+  };
+}
+
+function toInvoice(row: {
+  id: string;
+  tenantId: string;
+  invoiceNo: string;
+  orderId: string;
+  orderNo: string;
+  customerId: string | null;
+  amount: number;
+  currency: string;
+  type: string;
+  title: string;
+  status: string;
+  createdAt: Date;
+  issuedAt: Date | null;
+}): Invoice {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    invoiceNo: row.invoiceNo,
+    orderId: row.orderId,
+    orderNo: row.orderNo,
+    customerId: row.customerId,
+    amount: { amount: row.amount, currency: row.currency },
+    type: row.type as Invoice['type'],
+    title: row.title,
+    status: row.status as Invoice['status'],
+    createdAt: row.createdAt.toISOString(),
+    issuedAt: row.issuedAt ? row.issuedAt.toISOString() : null,
   };
 }
 
@@ -706,6 +738,41 @@ export class PrismaDatabase extends DatabasePort {
         quantity: line.quantity,
         batchCode: line.batchCode,
       })),
+    });
+  }
+
+  async listInvoices(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.invoice.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.invoice.count(),
+    ]);
+    return toPage(rows.map(toInvoice), total, params);
+  }
+
+  async findInvoice(id: string) {
+    const row = await this.client.invoice.findUnique({ where: { id } });
+    return row ? toInvoice(row) : null;
+  }
+
+  async saveInvoice(invoice: Invoice) {
+    await this.client.invoice.upsert({
+      where: { id: invoice.id },
+      create: {
+        id: invoice.id,
+        tenantId: invoice.tenantId,
+        invoiceNo: invoice.invoiceNo,
+        orderId: invoice.orderId,
+        orderNo: invoice.orderNo,
+        customerId: invoice.customerId,
+        amount: invoice.amount.amount,
+        currency: invoice.amount.currency,
+        type: invoice.type,
+        title: invoice.title,
+        status: invoice.status,
+        createdAt: new Date(invoice.createdAt),
+        issuedAt: invoice.issuedAt ? new Date(invoice.issuedAt) : null,
+      },
+      update: { status: invoice.status, issuedAt: invoice.issuedAt ? new Date(invoice.issuedAt) : null },
     });
   }
 

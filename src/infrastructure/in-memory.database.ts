@@ -4,6 +4,7 @@ import type {
   AuditEventListQuery,
   Customer,
   InventoryLot,
+  Invoice,
   PageQueryParams,
   PriceList,
   Principal,
@@ -34,6 +35,7 @@ interface State {
   customers: Customer[];
   rmas: Rma[];
   shipments: Shipment[];
+  invoices: Invoice[];
   transfers: Transfer[];
   stocktakes: Stocktake[];
   auditEvents: AuditEvent[];
@@ -94,6 +96,7 @@ function seed(): State {
     customers: [],
     rmas,
     shipments: [],
+    invoices: [],
     transfers,
     stocktakes,
     auditEvents: [],
@@ -287,6 +290,23 @@ export class InMemoryDatabase extends DatabasePort {
     const copy = { ...shipment, lines: shipment.lines.map((l) => ({ ...l })) };
     if (i >= 0) this.state.shipments[i] = copy;
     else this.state.shipments.push(copy);
+  }
+
+  async listInvoices(params: PageQueryParams) {
+    const sorted = [...this.state.invoices].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return pageOf(sorted.map((v) => ({ ...v })), params);
+  }
+
+  async findInvoice(id: string) {
+    const found = this.state.invoices.find((v) => v.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async saveInvoice(invoice: Invoice) {
+    const i = this.state.invoices.findIndex((v) => v.id === invoice.id);
+    const copy = { ...invoice };
+    if (i >= 0) this.state.invoices[i] = copy;
+    else this.state.invoices.push(copy);
   }
 
   async listTransfers(params: PageQueryParams) {

@@ -3,6 +3,7 @@ import type {
   AuditEventListQuery,
   Customer,
   InventoryLot,
+  Invoice,
   PageQueryParams,
   PriceList,
   Principal,
@@ -84,6 +85,9 @@ export abstract class DatabasePort {
   abstract listShipments(params: PageQueryParams): Promise<Page<Shipment>>;
   abstract findShipment(id: string): Promise<Shipment | null>;
   abstract saveShipment(shipment: Shipment): Promise<void>;
+  abstract listInvoices(params: PageQueryParams): Promise<Page<Invoice>>;
+  abstract findInvoice(id: string): Promise<Invoice | null>;
+  abstract saveInvoice(invoice: Invoice): Promise<void>;
   abstract listTransfers(params: PageQueryParams): Promise<Page<Transfer>>;
   abstract findTransfer(id: string): Promise<Transfer | null>;
   abstract saveTransfer(transfer: Transfer): Promise<void>;

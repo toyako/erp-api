@@ -143,6 +143,18 @@ async function main() {
   const shipmentDelivered = shipmentId ? await call(`/shipments/${shipmentId}/deliver`, { method: 'POST' }) : { status: 0, body: {} };
   const shipmentBadShip = shipmentId ? await call(`/shipments/${shipmentId}/ship`, jsonPost({ carrier: '顺丰速运', trackingNo: 'SF2' })) : { status: 0, body: {} };
 
+  // 发票闭环：新单建单→确认→付款→开票 ¥199（草稿）→开票（已开票）→再开 ¥1 超额 409→作废→重开 ¥199 成功
+  const invOrder = await call('/sales/orders', jsonPost({ lines: [{ skuId: sku.id, quantity: 1 }] }));
+  const invOrderId = invOrder.body.id;
+  const invOrderConfirmed = invOrderId ? await call(`/sales/orders/${invOrderId}/confirm`, { method: 'POST' }) : { status: 0, body: {} };
+  const invOrderPaid = invOrderId ? await call(`/sales/orders/${invOrderId}/pay`, { method: 'POST' }) : { status: 0, body: {} };
+  const invoiceCreated = invOrderId ? await call('/invoices', jsonPost({ orderId: invOrderId, amount: { amount: 19900, currency: 'CNY' } })) : { status: 0, body: {} };
+  const invoiceId = invoiceCreated.body.id;
+  const invoiceIssued = invoiceId ? await call(`/invoices/${invoiceId}/issue`, { method: 'POST' }) : { status: 0, body: {} };
+  const invoiceOver = invOrderId ? await call('/invoices', jsonPost({ orderId: invOrderId, amount: { amount: 100, currency: 'CNY' } })) : { status: 0, body: {} };
+  const invoiceVoided = invoiceId ? await call(`/invoices/${invoiceId}/void`, { method: 'POST' }) : { status: 0, body: {} };
+  const invoiceRecreated = invOrderId ? await call('/invoices', jsonPost({ orderId: invOrderId, amount: { amount: 19900, currency: 'CNY' } })) : { status: 0, body: {} };
+
   // 仪表盘汇总：只断言形状与下限——冒烟自身建了 2 单（1 已完成、1 已取消），
   // 其余绝对值会随种子变化，不写死
   const overview = await call('/dashboard/overview');
@@ -228,6 +240,11 @@ async function main() {
     shipmentFulfillsOrder: shipOrderAfter.status === 'fulfilled' && sourceAfterShip.totalQty === sourceAfterStocktake.totalQty - 1 && sourceAfterShip.reservedQty === 0 && sourceAfterShip.availableQty === sourceAfterStocktake.availableQty - 1,
     shipmentDelivered: shipmentDelivered.body.status === 'delivered' && Boolean(shipmentDelivered.body.deliveredAt),
     shipmentBadShipRejected: shipmentBadShip.status === 409 && shipmentBadShip.body.code === 'INVALID_STATE',
+    invoiceCreated: invoiceCreated.status === 201 && invoiceCreated.body.status === 'draft' && invoiceCreated.body.invoiceNo && invoiceCreated.body.invoiceNo.startsWith('INV-') && invoiceCreated.body.title === '散客' && invoiceCreated.body.amount && invoiceCreated.body.amount.amount === 19900,
+    invoiceIssued: invoiceIssued.body.status === 'issued' && Boolean(invoiceIssued.body.issuedAt),
+    invoiceOverRejected: invoiceOver.status === 409 && invoiceOver.body.code === 'CONFLICT',
+    invoiceVoided: invoiceVoided.body.status === 'voided',
+    invoiceRecreated: invoiceRecreated.status === 201 && invoiceRecreated.body.status === 'draft',
     auditRecorded: auditAll.status === 200 && auditAll.body.total >= 1 && (auditAll.body.items || []).every((e) => typeof e.action === 'string' && e.action.length > 0),
     auditEntityFilter: auditCustomers.status === 200 && auditCustomers.body.total >= 1 && (auditCustomers.body.items || []).every((e) => e.targetType === 'customers') && (auditCustomers.body.items || []).some((e) => e.action === 'POST /customers'),
     auditGetNotLogged: auditAllAgain.body.total === auditAll.body.total,

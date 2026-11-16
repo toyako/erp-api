@@ -82,7 +82,7 @@ export class DashboardService {
   }
 
   private async loadAll() {
-    const [orders, lots, skus, purchaseOrders, rmas, transfers, stocktakes, shipments] = await Promise.all([
+    const [orders, lots, skus, purchaseOrders, rmas, transfers, stocktakes, shipments, invoices] = await Promise.all([
       this.collectAll((p) => this.db.listOrders(p)),
       this.collectAll((p) => this.db.listLots(p)),
       this.collectAll((p) => this.db.listSkus(p)),
@@ -91,8 +91,9 @@ export class DashboardService {
       this.collectAll((p) => this.db.listTransfers(p)),
       this.collectAll((p) => this.db.listStocktakes(p)),
       this.collectAll((p) => this.db.listShipments(p)),
+      this.collectAll((p) => this.db.listInvoices(p)),
     ]);
-    return { orders, lots, skus, purchaseOrders, rmas, transfers, stocktakes, shipments };
+    return { orders, lots, skus, purchaseOrders, rmas, transfers, stocktakes, shipments, invoices };
   }
 
   async getOverview(): Promise<OverviewSummary> {
@@ -252,9 +253,9 @@ export class DashboardService {
     return { range, buckets, ranking, turnover, slow };
   }
 
-  /** 待办派生：订单按状态一条、退货待审核一条、调拨按状态三条（待提交/待审核/待完成）、盘点待确认一条、已提交采购单待入库一条、发货单按状态三条（待拣货/待打包/待发货）、可用量 < 20 的批次一条预警；先过滤再分页 */
+  /** 待办派生：订单按状态一条、退货待审核一条、调拨按状态三条（待提交/待审核/待完成）、盘点待确认一条、已提交采购单待入库一条、发货单按状态三条（待拣货/待打包/待发货）、发票待开具一条、可用量 < 20 的批次一条预警；先过滤再分页 */
   async listTodos(query: TodoListQuery): Promise<Page<TodoItem>> {
-    const { orders, lots, rmas, transfers, stocktakes, purchaseOrders, shipments } = await this.loadAll();
+    const { orders, lots, rmas, transfers, stocktakes, purchaseOrders, shipments, invoices } = await this.loadAll();
     const items: TodoItem[] = [];
     for (const o of orders) {
       if (o.status === 'paid') {
@@ -301,6 +302,11 @@ export class DashboardService {
         items.push({ id: `ship-pack-${s.id}`, type: 'shipment', typeLabel: '发货', cls: 'blue', title: '发货单待打包', refNo: s.shipmentNo, actor: '系统', time: s.createdAt, done: false, action: '去打包', to: '/erp/sales/shipments' });
       } else if (s.status === 'packed') {
         items.push({ id: `ship-send-${s.id}`, type: 'shipment', typeLabel: '发货', cls: 'blue', title: '发货单待发货', refNo: s.shipmentNo, actor: '系统', time: s.createdAt, done: false, action: '去发货', to: '/erp/sales/shipments' });
+      }
+    }
+    for (const v of invoices) {
+      if (v.status === 'draft') {
+        items.push({ id: `inv-${v.id}`, type: 'invoice', typeLabel: '发票', cls: 'orange', title: '发票待开具', refNo: v.invoiceNo, actor: '系统', time: v.createdAt, done: false, action: '去开票', to: '/erp/finance/invoices' });
       }
     }
     for (const p of purchaseOrders) {

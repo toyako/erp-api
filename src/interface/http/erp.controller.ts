@@ -3,6 +3,7 @@ import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseIntercept
 import {
   AuditEventListQuerySchema,
   CreateCustomerRequestSchema,
+  CreateInvoiceRequestSchema,
   CreateOrderRequestSchema,
   CreatePriceRequestSchema,
   CreatePrincipalRequestSchema,
@@ -28,6 +29,7 @@ import {
   UpdateSupplierRequestSchema,
   type AuditEventListQuery,
   type CreateCustomerRequest,
+  type CreateInvoiceRequest,
   type CreateOrderRequest,
   type CreatePriceRequest,
   type CreatePrincipalRequest,
@@ -62,6 +64,7 @@ import { PurchaseService } from '../../application/purchase.service';
 import { RmaService } from '../../application/rma.service';
 import { SalesService, TENANT_ID } from '../../application/sales.service';
 import { ShipmentService } from '../../application/shipment.service';
+import { InvoiceService } from '../../application/invoice.service';
 import { StocktakeService } from '../../application/stocktake.service';
 import { TransferService } from '../../application/transfer.service';
 import { DatabasePort, DomainError } from '../../domain/ports';
@@ -80,6 +83,7 @@ export class ErpController {
     private readonly customer: CustomerService,
     private readonly rma: RmaService,
     private readonly shipment: ShipmentService,
+    private readonly invoice: InvoiceService,
     private readonly transfer: TransferService,
     private readonly stocktake: StocktakeService,
     private readonly dashboard: DashboardService,
@@ -474,6 +478,40 @@ export class ErpController {
   @Post('shipments/:id/cancel')
   cancelShipment(@Param('id') id: string) {
     return this.shipment.cancelShipment(id);
+  }
+
+  @Get('invoices')
+  async invoices(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.invoice.listInvoices(query);
+  }
+
+  @Get('invoices/:id')
+  async getInvoice(@Param('id') id: string) {
+    return this.invoice.findInvoice(id);
+  }
+
+  @Post('invoices')
+  createInvoice(
+    @Body(new ZodValidationPipe(CreateInvoiceRequestSchema)) body: CreateInvoiceRequest,
+  ) {
+    return this.invoice.createInvoice(body);
+  }
+
+  @Post('invoices/:id/issue')
+  issueInvoice(@Param('id') id: string) {
+    return this.invoice.issueInvoice(id);
+  }
+
+  @Post('invoices/:id/void')
+  voidInvoice(@Param('id') id: string) {
+    return this.invoice.voidInvoice(id);
+  }
+
+  @Post('invoices/:id/cancel')
+  cancelInvoice(@Param('id') id: string) {
+    return this.invoice.cancelInvoice(id);
   }
 
   @Get('transfers')
