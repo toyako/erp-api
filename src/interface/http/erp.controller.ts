@@ -94,7 +94,14 @@ export class ErpController {
     const suppliers = await this.db.listSuppliers();
     const found = suppliers.find((s) => s.id === id);
     if (!found) throw new DomainError('NOT_FOUND', `供应商 ${id} 不存在`, 404);
-    const merged: Supplier = { ...found, ...body };
+    const merged: Supplier = {
+      ...found,
+      name: body.name ?? found.name,
+      contact: body.contact ?? found.contact,
+      phone: body.phone ?? found.phone,
+      rating: body.rating ?? found.rating,
+      enabled: body.enabled ?? found.enabled,
+    };
     await this.db.saveSupplier(merged);
     return merged;
   }
@@ -150,7 +157,12 @@ export class ErpController {
   ) {
     const found = await this.db.findSku(id);
     if (!found) throw new DomainError('NOT_FOUND', `SKU ${id} 不存在`, 404);
-    const merged: Sku = { ...found, ...body };
+    const merged: Sku = {
+      ...found,
+      spec: body.spec ?? found.spec,
+      unit: body.unit ?? found.unit,
+      enabled: body.enabled ?? found.enabled,
+    };
     await this.db.saveSku(merged);
     return merged;
   }
