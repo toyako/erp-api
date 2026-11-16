@@ -163,7 +163,7 @@ async function main() {
 
   // 客户档案：只加这 3 个，其余种子逻辑不动（尤其 lots 的 upsert 别碰）
   const customers = [
-    { id: '00000000-0000-4000-8000-000000000401', code: 'CUST-001', name: '华东贸易有限公司', phone: '0571-88889999', level: 'vip' },
+    { id: '00000000-0000-4000-8000-000000000401', code: 'CUST-001', name: '华东贸易有限公司', phone: '0571-88889999', level: 'regular' },
     { id: '00000000-0000-4000-8000-000000000402', code: 'CUST-002', name: '李明', phone: '13800001111', level: 'regular' },
     { id: '00000000-0000-4000-8000-000000000403', code: 'CUST-003', name: '门店散客', phone: null, level: 'regular' },
   ] as const;

@@ -429,7 +429,7 @@ export class DashboardService {
     const now = new Date().toISOString();
     for (const f of followups) {
       if (!f.done && f.nextAt && f.nextAt <= now) {
-        items.push({ id: `follow-${f.id}`, type: 'followup', typeLabel: '跟进', cls: 'orange', title: `客户跟进到期：${f.content.slice(0, 20)}`, refNo: customerById.get(f.customerId)?.code ?? f.customerId.slice(0, 8), actor: '系统', time: f.nextAt, done: false, action: '去跟进', to: '/erp/sales/customers' });
+        items.push({ id: `follow-${f.id}`, type: 'followup', typeLabel: '跟进', cls: 'orange', title: `客户跟进到期：${f.content.slice(0, 20)}`, refNo: customerById.get(f.customerId)?.code ?? f.customerId.slice(0, 8), actor: '系统', time: f.nextAt, done: false, action: '去跟进', to: '/erp/finance/customers' });
       }
     }
     items.sort((a, b) => Number(a.done) - Number(b.done) || b.time.localeCompare(a.time));
