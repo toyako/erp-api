@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import { DashboardService } from "../src/application/dashboard.service"
 import { PurchaseService } from "../src/application/purchase.service"
 import { SalesService, TENANT_ID } from "../src/application/sales.service"
+import { StocktakeService } from "../src/application/stocktake.service"
+import { TransferService } from "../src/application/transfer.service"
 import { InMemoryDatabase } from "../src/infrastructure/in-memory.database"
 import { MockPaymentGateway } from "../src/infrastructure/mock-payment.gateway"
 
@@ -110,24 +112,32 @@ describe("DashboardService", () => {
     const { paid, confirmed, draft } = await seedOrders(sales, db)
 
     const all = await dashboard.listTodos({ page: 1, pageSize: 20 })
-    expect(all.total).toBe(5)
-    expect(all.items.slice(0, 3).every((i) => !i.done)).toBe(true)
-    expect(all.items.slice(3).every((i) => i.done)).toBe(true)
+    expect(all.total).toBe(8)
+    expect(all.items.slice(0, 6).every((i) => !i.done)).toBe(true)
+    expect(all.items.slice(6).every((i) => i.done)).toBe(true)
     expect(all.items.find((i) => i.id === `ship-${paid.id}`)).toMatchObject({ type: "order", cls: "blue", action: "去发货" })
     expect(all.items.find((i) => i.id === `pay-${confirmed.id}`)).toMatchObject({ type: "order", cls: "orange", action: "去收款" })
     expect(all.items.find((i) => i.id === `confirm-${draft.id}`)).toMatchObject({ type: "order", cls: "orange", action: "去确认" })
+    // 演示种子里的待审核退货单也有一条待办
+    expect(all.items.find((i) => i.type === "rma")).toMatchObject({ typeLabel: "退货", cls: "orange", title: "退货待审核", refNo: "RMA-DEMO-001", done: false, action: "去审核", to: "/erp/sales/rma" })
+    // 演示种子里的待完成调拨与待确认盘点各有一条待办
+    expect(all.items.find((i) => i.type === "transfer")).toMatchObject({ typeLabel: "调拨", cls: "blue", title: "调拨待完成", refNo: "TRF-DEMO-001", done: false, action: "去完成", to: "/erp/stock/transfer" })
+    expect(all.items.find((i) => i.type === "stocktake")).toMatchObject({ typeLabel: "盘点", cls: "orange", title: "盘点待确认", refNo: "STK-DEMO-001", done: false, action: "去确认", to: "/erp/stock/transfer" })
 
     expect((await dashboard.listTodos({ page: 1, pageSize: 20, type: "order" })).total).toBe(3)
+    expect((await dashboard.listTodos({ page: 1, pageSize: 20, type: "rma" })).total).toBe(1)
+    expect((await dashboard.listTodos({ page: 1, pageSize: 20, type: "transfer" })).total).toBe(1)
+    expect((await dashboard.listTodos({ page: 1, pageSize: 20, type: "stocktake" })).total).toBe(1)
     expect((await dashboard.listTodos({ page: 1, pageSize: 20, type: "notice" })).total).toBe(2)
-    expect((await dashboard.listTodos({ page: 1, pageSize: 20, status: "pending" })).total).toBe(3)
+    expect((await dashboard.listTodos({ page: 1, pageSize: 20, status: "pending" })).total).toBe(6)
     expect((await dashboard.listTodos({ page: 1, pageSize: 20, status: "done" })).total).toBe(2)
     expect((await dashboard.listTodos({ page: 1, pageSize: 20, keyword: "待发货" })).total).toBe(1)
 
     const p1 = await dashboard.listTodos({ page: 1, pageSize: 2 })
     const p3 = await dashboard.listTodos({ page: 3, pageSize: 2 })
     expect(p1.items).toHaveLength(2)
-    expect(p1.total).toBe(5)
-    expect(p3.items).toHaveLength(1)
+    expect(p1.total).toBe(8)
+    expect(p3.items).toHaveLength(2)
   })
 
   it("应收应付四数", async () => {
@@ -185,5 +195,34 @@ describe("DashboardService", () => {
     const p2 = await dashboard.listMovements({ page: 2, pageSize: 3 })
     expect(p2.items).toHaveLength(1)
     expect(p2.total).toBe(4)
+  })
+
+  it("流水派生：调拨出库+入库两条、盘点差异一条，零差异不记", async () => {
+    const { db, dashboard } = makeDashboard()
+    const transfer = new TransferService(db)
+    const stocktake = new StocktakeService(db)
+    const a = await firstSku(db)
+
+    // 调拨 SKU-001 主仓→华东仓 5 件并完成
+    const t = await transfer.createTransfer({ skuId: a.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 5 })
+    await transfer.completeTransfer(t.id)
+    // 盘点 BATCH-002（SKU-002，50 件）实盘 48，确认；再盘一次实盘 48，零差异不记流水
+    const lotB = (await db.listLots({ page: 1, pageSize: 20 })).items.find((l) => l.batchCode === "BATCH-002")!
+    const s = await stocktake.createStocktake({ lotId: lotB.id, countedQty: 48 })
+    await stocktake.confirmStocktake(s.id)
+    const s0 = await stocktake.createStocktake({ lotId: lotB.id, countedQty: 48 })
+    await stocktake.confirmStocktake(s0.id)
+
+    const all = await dashboard.listMovements({ page: 1, pageSize: 20 })
+    expect(all.total).toBe(3)
+    const trf = all.items.filter((r) => r.type === "transfer")
+    expect(trf).toHaveLength(2)
+    expect(trf.find((r) => r.typeLabel === "调拨出库")).toMatchObject({ batch: "BATCH-001", delta: -5, refNo: t.transferNo })
+    expect(trf.find((r) => r.typeLabel === "调拨入库")).toMatchObject({ batch: "BATCH-001", delta: 5, refNo: t.transferNo })
+    const adj = all.items.filter((r) => r.type === "adjust")
+    expect(adj).toHaveLength(1)
+    expect(adj[0]).toMatchObject({ batch: "BATCH-002", delta: -2, refNo: s.stocktakeNo })
+    expect((await dashboard.listMovements({ page: 1, pageSize: 20, type: "transfer" })).total).toBe(2)
+    expect((await dashboard.listMovements({ page: 1, pageSize: 20, type: "adjust" })).total).toBe(1)
   })
 })

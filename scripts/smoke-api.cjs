@@ -41,6 +41,10 @@ async function main() {
   const sku = skus.body.items && skus.body.items[0];
   if (!sku) throw new Error('no seed SKU');
 
+  const customers = await call('/customers');
+  const newCustomer = await call('/customers', jsonPost({ code: 'CUST-SMOKE', name: '冒烟客户', level: 'vip' }));
+  const gotCustomer = newCustomer.body.id ? await call(`/customers/${newCustomer.body.id}`) : { status: 0, body: {} };
+
   const before = await call('/inventory/lots');
   const created = await call('/sales/orders', jsonPost({ lines: [{ skuId: sku.id, quantity: 2 }] }));
   const after = await call('/inventory/lots');
@@ -58,6 +62,31 @@ async function main() {
   const id2 = created2.body.id;
   const cancelled = id2 ? await call(`/sales/orders/${id2}/cancel`, { method: 'POST' }) : { status: 0, body: {} };
   const afterCancel = await call('/inventory/lots');
+
+  // 退货闭环：对已履约订单建 RMA（qty 1）→审核→收货回补库存→退款
+  const rmaList = await call('/rmas');
+  const rmaCreated = await call('/rmas', jsonPost({ orderId: id, skuId: sku.id, quantity: 1, reason: '冒烟退货' }));
+  const rmaId = rmaCreated.body.id;
+  const rmaApproved = rmaId ? await call(`/rmas/${rmaId}/approve`, { method: 'POST' }) : { status: 0, body: {} };
+  const rmaReceived = rmaId ? await call(`/rmas/${rmaId}/receive`, { method: 'POST' }) : { status: 0, body: {} };
+  const lotAfterRma = (await call('/inventory/lots')).body.items?.[0] || {};
+  const rmaRefunded = rmaId ? await call(`/rmas/${rmaId}/refund`, { method: 'POST' }) : { status: 0, body: {} };
+  const rmaOver = await call('/rmas', jsonPost({ orderId: id, skuId: sku.id, quantity: 2, reason: '超余量' }));
+
+  // 调拨与盘点闭环：建调拨→完成（源批次扣数、目标新建同批次）→建盘点→确认（总量按实盘改）
+  const transfersList = await call('/transfers');
+  const stocktakesList = await call('/stocktakes');
+  const transferCreated = await call('/transfers', jsonPost({ skuId: sku.id, fromLocation: '主仓', toLocation: '华东仓', quantity: 2 }));
+  const transferId = transferCreated.body.id;
+  const transferCompleted = transferId ? await call(`/transfers/${transferId}/complete`, { method: 'POST' }) : { status: 0, body: {} };
+  const lotsAfterTransfer = (await call('/inventory/lots')).body.items || [];
+  const sourceAfterTransfer = lotsAfterTransfer.find((l) => l.batchCode === 'BATCH-001' && l.location === '主仓') || {};
+  const destAfterTransfer = lotsAfterTransfer.find((l) => l.batchCode === 'BATCH-001' && l.location === '华东仓') || {};
+  const stocktakeCreated = await call('/stocktakes', jsonPost({ lotId: sourceAfterTransfer.id, countedQty: sourceAfterTransfer.totalQty - 1 }));
+  const stocktakeId = stocktakeCreated.body.id;
+  const stocktakeConfirmed = stocktakeId ? await call(`/stocktakes/${stocktakeId}/confirm`, { method: 'POST' }) : { status: 0, body: {} };
+  const lotsAfterStocktake = (await call('/inventory/lots')).body.items || [];
+  const sourceAfterStocktake = lotsAfterStocktake.find((l) => l.batchCode === 'BATCH-001' && l.location === '主仓') || {};
 
   // 仪表盘汇总：只断言形状与下限——冒烟自身建了 2 单（1 已完成、1 已取消），
   // 其余绝对值会随种子变化，不写死
@@ -79,6 +108,9 @@ async function main() {
     health: health.status === 200 && health.body.status === 'ok',
     login: login.status === 201 && Boolean(login.body.accessToken),
     seedSkus: (skus.body.items || []).length >= 2,
+    customersList: customers.status === 200 && Array.isArray(customers.body.items),
+    customerCreated: newCustomer.status === 201 && newCustomer.body.code === 'CUST-SMOKE' && newCustomer.body.totalSpent && newCustomer.body.totalSpent.amount === 0,
+    customerTotalSpent: gotCustomer.status === 200 && gotCustomer.body.totalSpent && typeof gotCustomer.body.totalSpent.amount === 'number',
     orderCreated: created.status === 201 && created.body.status === 'draft',
     serverSidePricing: created.body.total && created.body.total.amount === 39800,
     stockReserved: lotAfter.reservedQty === (lotBefore.reservedQty || 0) + 2,
@@ -100,6 +132,19 @@ async function main() {
     dashboardReceivablesPaged: receivables.status === 200 && receivables.body.total >= 1 && (receivables.body.items || []).length >= 1,
     dashboardActivity: activity.status === 200 && Array.isArray(activity.body) && activity.body.length >= 2,
     dashboardMovementsPaged: movements.status === 200 && movements.body.total >= 1 && (movements.body.items || []).length <= 2,
+    rmaListed: rmaList.status === 200 && Array.isArray(rmaList.body.items),
+    rmaCreated: rmaCreated.status === 201 && rmaCreated.body.status === 'requested' && rmaCreated.body.refundAmount && rmaCreated.body.refundAmount.amount === 19900,
+    rmaApproved: rmaApproved.body.status === 'approved',
+    rmaReceived: rmaReceived.body.status === 'received' && Boolean(rmaReceived.body.receivedAt),
+    rmaRestocked: lotAfterRma.availableQty === lotCancelled.availableQty + 1 && lotAfterRma.totalQty === lotCancelled.totalQty + 1,
+    rmaRefunded: rmaRefunded.body.status === 'refunded',
+    rmaOverRejected: rmaOver.status === 409 && rmaOver.body.code === 'CONFLICT',
+    transferListed: transfersList.status === 200 && Array.isArray(transfersList.body.items),
+    stocktakeListed: stocktakesList.status === 200 && Array.isArray(stocktakesList.body.items),
+    transferCreated: transferCreated.status === 201 && transferCreated.body.status === 'draft' && transferCreated.body.batchCode === null,
+    transferCompleted: transferCompleted.body.status === 'completed' && transferCompleted.body.batchCode === 'BATCH-001' && sourceAfterTransfer.availableQty === lotAfterRma.availableQty - 2 && destAfterTransfer.availableQty === 2 && destAfterTransfer.totalQty === 2,
+    stocktakeCreated: stocktakeCreated.status === 201 && stocktakeCreated.body.status === 'draft' && stocktakeCreated.body.systemQty === sourceAfterTransfer.totalQty && stocktakeCreated.body.difference === -1,
+    stocktakeConfirmed: stocktakeConfirmed.body.status === 'confirmed' && sourceAfterStocktake.totalQty === sourceAfterTransfer.totalQty - 1 && sourceAfterStocktake.availableQty === sourceAfterTransfer.totalQty - 1,
   };
 
   console.log(JSON.stringify({ checks, sample: { orderTotal: created.body.total, reservedQty: lotAfter.reservedQty } }, null, 2));

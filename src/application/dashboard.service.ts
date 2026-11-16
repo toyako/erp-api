@@ -81,13 +81,16 @@ export class DashboardService {
   }
 
   private async loadAll() {
-    const [orders, lots, skus, purchaseOrders] = await Promise.all([
+    const [orders, lots, skus, purchaseOrders, rmas, transfers, stocktakes] = await Promise.all([
       this.collectAll((p) => this.db.listOrders(p)),
       this.collectAll((p) => this.db.listLots(p)),
       this.collectAll((p) => this.db.listSkus(p)),
       this.collectAll((p) => this.db.listPurchaseOrders(p)),
+      this.collectAll((p) => this.db.listRmas(p)),
+      this.collectAll((p) => this.db.listTransfers(p)),
+      this.collectAll((p) => this.db.listStocktakes(p)),
     ]);
-    return { orders, lots, skus, purchaseOrders };
+    return { orders, lots, skus, purchaseOrders, rmas, transfers, stocktakes };
   }
 
   async getOverview(): Promise<OverviewSummary> {
@@ -247,9 +250,9 @@ export class DashboardService {
     return { range, buckets, ranking, turnover, slow };
   }
 
-  /** 待办派生：订单按状态一条、可用量 < 20 的批次一条预警；先过滤再分页 */
+  /** 待办派生：订单按状态一条、退货待审核一条、调拨待完成一条、盘点待确认一条、可用量 < 20 的批次一条预警；先过滤再分页 */
   async listTodos(query: TodoListQuery): Promise<Page<TodoItem>> {
-    const { orders, lots } = await this.loadAll();
+    const { orders, lots, rmas, transfers, stocktakes } = await this.loadAll();
     const items: TodoItem[] = [];
     for (const o of orders) {
       if (o.status === 'paid') {
@@ -268,6 +271,21 @@ export class DashboardService {
     for (const lot of lots) {
       if (lot.availableQty < WARNING_QTY) {
         items.push({ id: `warn-${lot.id}`, type: 'warning', typeLabel: '预警', cls: 'red', title: `${lot.batchCode} 库存低于安全线`, refNo: lot.batchCode, actor: '系统', time: '', done: false, action: '查看批次', to: '/erp/stock/lots' });
+      }
+    }
+    for (const r of rmas) {
+      if (r.status === 'requested') {
+        items.push({ id: `rma-${r.id}`, type: 'rma', typeLabel: '退货', cls: 'orange', title: '退货待审核', refNo: r.rmaNo, actor: '系统', time: r.createdAt, done: false, action: '去审核', to: '/erp/sales/rma' });
+      }
+    }
+    for (const t of transfers) {
+      if (t.status === 'draft') {
+        items.push({ id: `trf-${t.id}`, type: 'transfer', typeLabel: '调拨', cls: 'blue', title: '调拨待完成', refNo: t.transferNo, actor: '系统', time: t.createdAt, done: false, action: '去完成', to: '/erp/stock/transfer' });
+      }
+    }
+    for (const s of stocktakes) {
+      if (s.status === 'draft') {
+        items.push({ id: `stk-${s.id}`, type: 'stocktake', typeLabel: '盘点', cls: 'orange', title: '盘点待确认', refNo: s.stocktakeNo, actor: '系统', time: s.createdAt, done: false, action: '去确认', to: '/erp/stock/transfer' });
       }
     }
     items.sort((a, b) => Number(a.done) - Number(b.done) || b.time.localeCompare(a.time));
@@ -331,10 +349,11 @@ export class DashboardService {
       }));
   }
 
-  /** 库存流水派生：fulfilled 为销售出库，draft/confirmed/paid 为库存占用，cancelled 跳过 */
+  /** 库存流水派生：fulfilled 为销售出库，draft/confirmed/paid 为库存占用，cancelled 跳过；已收货的退货为退货入库；已完成的调拨为出库+入库两条；已确认且差异非零的盘点为一条调整 */
   async listMovements(query: MovementListQuery): Promise<Page<MovementRow>> {
-    const { orders, lots, skus } = await this.loadAll();
+    const { orders, lots, skus, rmas, transfers, stocktakes } = await this.loadAll();
     const skuById = new Map(skus.map((s) => [s.id, s]));
+    const lotById = new Map(lots.map((l) => [l.id, l]));
     const firstBatchBySku = new Map<string, string>();
     for (const lot of [...lots].sort((a, b) => a.batchCode.localeCompare(b.batchCode))) {
       if (!firstBatchBySku.has(lot.skuId)) firstBatchBySku.set(lot.skuId, lot.batchCode);
@@ -351,6 +370,28 @@ export class DashboardService {
           rows.push({ id: `res-${o.id}-${line.id}`, type: 'reserve', typeLabel: '库存占用', cls: 'orange', batch, skuId: line.skuId, skuName, delta: line.quantity, refNo: o.orderNo, actor: '系统（自动）', time: o.createdAt });
         }
       }
+    }
+    for (const r of rmas) {
+      if (!r.receivedAt) continue;
+      const batch = firstBatchBySku.get(r.skuId) ?? '—';
+      const sku = skuById.get(r.skuId);
+      const skuName = sku ? `${sku.code} · ${sku.spec}` : r.skuId.slice(0, 8);
+      rows.push({ id: `in-${r.id}`, type: 'inbound', typeLabel: '退货入库', cls: 'green', batch, skuId: r.skuId, skuName, delta: r.quantity, refNo: r.rmaNo, actor: '系统（自动）', time: r.receivedAt });
+    }
+    for (const t of transfers) {
+      if (t.status !== 'completed' || !t.completedAt) continue;
+      const batch = t.batchCode ?? firstBatchBySku.get(t.skuId) ?? '—';
+      const sku = skuById.get(t.skuId);
+      const skuName = sku ? `${sku.code} · ${sku.spec}` : t.skuId.slice(0, 8);
+      rows.push({ id: `trf-out-${t.id}`, type: 'transfer', typeLabel: '调拨出库', cls: 'blue', batch, skuId: t.skuId, skuName, delta: -t.quantity, refNo: t.transferNo, actor: '系统（自动）', time: t.completedAt });
+      rows.push({ id: `trf-in-${t.id}`, type: 'transfer', typeLabel: '调拨入库', cls: 'green', batch, skuId: t.skuId, skuName, delta: t.quantity, refNo: t.transferNo, actor: '系统（自动）', time: t.completedAt });
+    }
+    for (const s of stocktakes) {
+      if (s.status !== 'confirmed' || !s.confirmedAt || s.difference === 0) continue;
+      const batch = lotById.get(s.lotId)?.batchCode ?? '—';
+      const sku = skuById.get(s.skuId);
+      const skuName = sku ? `${sku.code} · ${sku.spec}` : s.skuId.slice(0, 8);
+      rows.push({ id: `stk-${s.id}`, type: 'adjust', typeLabel: '盘点调整', cls: s.difference > 0 ? 'green' : 'red', batch, skuId: s.skuId, skuName, delta: s.difference, refNo: s.stocktakeNo, actor: '系统（自动）', time: s.confirmedAt });
     }
     rows.sort((a, b) => b.time.localeCompare(a.time));
     const kw = query.keyword?.trim().toLowerCase() ?? '';

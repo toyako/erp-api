@@ -23,9 +23,16 @@ export class SalesService {
     return this.db.listOrders(params);
   }
 
-  /** 金额只由服务端按价格表计算，请求体不含任何金额字段 */
+  /** 金额只由服务端按价格表计算，请求体不含任何金额字段；customerId 传了则校验客户存在 */
   async createOrder(input: CreateOrderRequest): Promise<SalesOrder> {
     return this.db.runInTransaction(async (tx) => {
+      let customerId: string | undefined;
+      if (input.customerId) {
+        const customer = await tx.findCustomer(input.customerId);
+        if (!customer) throw new DomainError('NOT_FOUND', `客户 ${input.customerId} 不存在`, 404);
+        customerId = customer.id;
+      }
+
       const lines: OrderLine[] = [];
       let total = zeroMoney();
 
@@ -58,6 +65,7 @@ export class SalesService {
         id: randomUUID(),
         tenantId: TENANT_ID,
         orderNo: `ERP-${Date.now().toString(36).toUpperCase()}`,
+        ...(customerId ? { customerId } : {}),
         status: 'draft',
         lines,
         total,

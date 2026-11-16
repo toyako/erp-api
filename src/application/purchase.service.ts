@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { addMoney, multiplyMoney, zeroMoney } from '../domain/money';
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_LOCATION } from '@erp/contracts';
 import type {
   CreatePurchaseOrderRequest,
   PageQueryParams,
@@ -85,6 +86,7 @@ export class PurchaseService {
             tenantId: TENANT_ID,
             skuId: line.skuId,
             batchCode: order.orderNo,
+            location: DEFAULT_LOCATION,
             availableQty: line.quantity,
             reservedQty: 0,
             totalQty: line.quantity,

@@ -1,14 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import type {
+  Customer,
   InventoryLot,
   PageQueryParams,
   PriceList,
   Principal,
   PurchaseOrder,
+  Rma,
   SalesOrder,
   Sku,
+  Stocktake,
   Supplier,
+  Transfer,
 } from '@erp/contracts';
+import { DEFAULT_LOCATION } from '@erp/contracts';
 import { DatabasePort, type Page } from '../domain/ports';
 import { TENANT_ID } from '../application/sales.service';
 
@@ -21,6 +26,10 @@ interface State {
   orders: SalesOrder[];
   suppliers: Supplier[];
   purchaseOrders: PurchaseOrder[];
+  customers: Customer[];
+  rmas: Rma[];
+  transfers: Transfer[];
+  stocktakes: Stocktake[];
 }
 
 const skuA = '00000000-0000-4000-8000-000000000101';
@@ -41,8 +50,25 @@ function seed(): State {
     { id: '00000000-0000-4000-8000-000000000302', skuId: skuB, channelCode: 'default', price: { amount: 39900, currency: 'CNY' }, effectiveFrom: '2026-01-01T00:00:00.000Z' },
   ];
   const lots: InventoryLot[] = [
-    { id: '00000000-0000-4000-8000-000000000201', tenantId: TENANT_ID, skuId: skuA, batchCode: 'BATCH-001', availableQty: 100, reservedQty: 0, totalQty: 100 },
-    { id: '00000000-0000-4000-8000-000000000202', tenantId: TENANT_ID, skuId: skuB, batchCode: 'BATCH-002', availableQty: 50, reservedQty: 0, totalQty: 50 },
+    { id: '00000000-0000-4000-8000-000000000201', tenantId: TENANT_ID, skuId: skuA, batchCode: 'BATCH-001', location: DEFAULT_LOCATION, availableQty: 100, reservedQty: 0, totalQty: 100 },
+    { id: '00000000-0000-4000-8000-000000000202', tenantId: TENANT_ID, skuId: skuB, batchCode: 'BATCH-002', location: '华东仓', availableQty: 50, reservedQty: 0, totalQty: 50 },
+  ];
+  /**
+   * 演示退货单：与 Prisma seed / admin 演示兜底同口径（RMA-DEMO-001、SKU-001 ×1、¥199、待审核）。
+   * InMemory 种子里没有销售订单，orderId 用固定演示值，仅供列表与待办/流水派生展示。
+   */
+  const rmas: Rma[] = [
+    { id: '00000000-0000-4000-8000-000000000902', tenantId: TENANT_ID, rmaNo: 'RMA-DEMO-001', orderId: '00000000-0000-4000-8000-000000000901', skuId: skuA, quantity: 1, reason: '质量问题', status: 'requested', refundAmount: { amount: 19900, currency: 'CNY' }, createdAt: '2026-11-16T00:00:00.000Z', receivedAt: null },
+  ];
+  /**
+   * 演示调拨与盘点：与 Prisma seed / admin 演示兜底同口径（TRF-DEMO-001 主仓→华东仓 ×5 待完成；
+   * STK-DEMO-001 针对 BATCH-001 实盘 100、系统 100、差异 0 待确认）。数量与种子批次一致，未动 lots。
+   */
+  const transfers: Transfer[] = [
+    { id: '00000000-0000-4000-8000-000000000903', tenantId: TENANT_ID, transferNo: 'TRF-DEMO-001', skuId: skuA, fromLocation: DEFAULT_LOCATION, toLocation: '华东仓', quantity: 5, status: 'draft', batchCode: null, createdAt: '2026-11-16T00:00:00.000Z', completedAt: null },
+  ];
+  const stocktakes: Stocktake[] = [
+    { id: '00000000-0000-4000-8000-000000000904', tenantId: TENANT_ID, stocktakeNo: 'STK-DEMO-001', lotId: '00000000-0000-4000-8000-000000000201', skuId: skuA, countedQty: 100, systemQty: 100, difference: 0, status: 'draft', createdAt: '2026-11-16T00:00:00.000Z', confirmedAt: null },
   ];
   return {
     credentials: { admin: 'demo1234', sales: 'demo1234', viewer: 'demo1234' },
@@ -53,6 +79,10 @@ function seed(): State {
     orders: [],
     suppliers: [],
     purchaseOrders: [],
+    customers: [],
+    rmas,
+    transfers,
+    stocktakes,
   };
 }
 
@@ -93,6 +123,10 @@ export class InMemoryDatabase extends DatabasePort {
     return found ? { ...found } : null;
   }
   async listLots(params: PageQueryParams) { return pageOf(this.state.lots.map((l) => ({ ...l })), params); }
+  async findLot(id: string) {
+    const found = this.state.lots.find((l) => l.id === id);
+    return found ? { ...found } : null;
+  }
   async findLotBySku(skuId: string) {
     const found = this.state.lots.find((l) => l.skuId === skuId);
     return found ? { ...found } : null;
@@ -145,6 +179,74 @@ export class InMemoryDatabase extends DatabasePort {
     const copy = { ...order };
     if (i >= 0) this.state.purchaseOrders[i] = copy;
     else this.state.purchaseOrders.push(copy);
+  }
+
+  async listCustomers(params: PageQueryParams) {
+    const sorted = [...this.state.customers].sort((a, b) => a.code.localeCompare(b.code));
+    return pageOf(sorted.map((c) => ({ ...c })), params);
+  }
+
+  async findCustomer(id: string) {
+    const found = this.state.customers.find((c) => c.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async saveCustomer(customer: Customer) {
+    const i = this.state.customers.findIndex((c) => c.id === customer.id);
+    const copy = { ...customer };
+    if (i >= 0) this.state.customers[i] = copy;
+    else this.state.customers.push(copy);
+  }
+
+  async listRmas(params: PageQueryParams) {
+    const sorted = [...this.state.rmas].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return pageOf(sorted.map((r) => ({ ...r })), params);
+  }
+
+  async findRma(id: string) {
+    const found = this.state.rmas.find((r) => r.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async saveRma(rma: Rma) {
+    const i = this.state.rmas.findIndex((r) => r.id === rma.id);
+    const copy = { ...rma };
+    if (i >= 0) this.state.rmas[i] = copy;
+    else this.state.rmas.push(copy);
+  }
+
+  async listTransfers(params: PageQueryParams) {
+    const sorted = [...this.state.transfers].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return pageOf(sorted.map((t) => ({ ...t })), params);
+  }
+
+  async findTransfer(id: string) {
+    const found = this.state.transfers.find((t) => t.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async saveTransfer(transfer: Transfer) {
+    const i = this.state.transfers.findIndex((t) => t.id === transfer.id);
+    const copy = { ...transfer };
+    if (i >= 0) this.state.transfers[i] = copy;
+    else this.state.transfers.push(copy);
+  }
+
+  async listStocktakes(params: PageQueryParams) {
+    const sorted = [...this.state.stocktakes].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return pageOf(sorted.map((s) => ({ ...s })), params);
+  }
+
+  async findStocktake(id: string) {
+    const found = this.state.stocktakes.find((s) => s.id === id);
+    return found ? { ...found } : null;
+  }
+
+  async saveStocktake(stocktake: Stocktake) {
+    const i = this.state.stocktakes.findIndex((s) => s.id === stocktake.id);
+    const copy = { ...stocktake };
+    if (i >= 0) this.state.stocktakes[i] = copy;
+    else this.state.stocktakes.push(copy);
   }
 
   /** 失败时回滚到事务前快照，保证「占库存 + 建订单」原子性 */

@@ -65,6 +65,7 @@ model InventoryLot {
   tenantId     String @map("tenant_id")
   skuId        String @map("sku_id")
   batchCode    String @map("batch_code")
+  location     String @map("location")
   availableQty Int    @map("available_qty")
   reservedQty  Int    @map("reserved_qty")
   totalQty     Int    @map("total_qty")
@@ -83,13 +84,14 @@ model StockMovement {
 }
 
 model SalesOrder {
-  id        String   @id @default(uuid())
-  tenantId  String   @map("tenant_id")
-  orderNo   String   @unique @map("order_no")
-  status    String
-  amount    Int
-  currency  String   @db.Char(3)
-  createdAt DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  orderNo    String   @unique @map("order_no")
+  customerId String?  @map("customer_id")
+  status     String
+  amount     Int
+  currency   String   @db.Char(3)
+  createdAt  DateTime @default(now()) @map("created_at")
   @@index([tenantId, status])
   @@map("sales_orders")
 }
@@ -126,6 +128,21 @@ model AuditEvent {
   createdAt  DateTime @default(now()) @map("created_at")
   @@index([tenantId, createdAt])
   @@map("audit_events")
+}
+
+/// 客户档案（客户中心）
+model Customer {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  code      String   @unique
+  name      String
+  phone     String?
+  level     String   @default("regular")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@map("customers")
 }
 
 /// 供应商档案（采购上下文）
@@ -169,4 +186,59 @@ model PurchaseOrderLine {
 
   @@index([orderId])
   @@map("purchase_order_lines")
+}
+
+/// 售后退货：一单只针对一个订单里一个 SKU 的数量
+model Rma {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  rmaNo        String    @unique @map("rma_no")
+  orderId      String    @map("order_id")
+  skuId        String    @map("sku_id")
+  quantity     Int
+  reason       String
+  status       String
+  refundAmount Int       @map("refund_amount")
+  currency     String    @db.Char(3)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  receivedAt   DateTime? @map("received_at")
+
+  @@index([tenantId, status])
+  @@map("rmas")
+}
+
+/// 调拨：在两个仓库/库位之间移动一个 SKU 的库存；batch_code 为完成时实际动用的源批次
+model Transfer {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  transferNo    String    @unique @map("transfer_no")
+  skuId         String    @map("sku_id")
+  fromLocation  String    @map("from_location")
+  toLocation    String    @map("to_location")
+  quantity      Int
+  status        String
+  batchCode     String?   @map("batch_code")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  completedAt   DateTime? @map("completed_at")
+
+  @@index([tenantId, status])
+  @@map("transfers")
+}
+
+/// 盘点：针对单个批次实盘，difference = counted_qty - system_qty，建单时快照存下
+model Stocktake {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  stocktakeNo  String    @unique @map("stocktake_no")
+  lotId        String    @map("lot_id")
+  skuId        String    @map("sku_id")
+  countedQty   Int       @map("counted_qty")
+  systemQty    Int       @map("system_qty")
+  difference   Int
+  status       String
+  createdAt    DateTime  @default(now()) @map("created_at")
+  confirmedAt  DateTime? @map("confirmed_at")
+
+  @@index([tenantId, status])
+  @@map("stocktakes")
 }

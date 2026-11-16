@@ -1,19 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
 import {
+  CreateCustomerRequestSchema,
   CreateOrderRequestSchema,
   CreatePurchaseOrderRequestSchema,
+  CreateRmaRequestSchema,
+  CreateStocktakeRequestSchema,
   CreateSupplierRequestSchema,
+  CreateTransferRequestSchema,
   LoginRequestSchema,
   MovementListQuerySchema,
   PageQueryParamsSchema,
   ReportQuerySchema,
   TodoListQuerySchema,
+  UpdateCustomerRequestSchema,
   UpdateSkuRequestSchema,
   UpdateSupplierRequestSchema,
+  type CreateCustomerRequest,
   type CreateOrderRequest,
   type CreatePurchaseOrderRequest,
+  type CreateRmaRequest,
+  type CreateStocktakeRequest,
   type CreateSupplierRequest,
+  type CreateTransferRequest,
   type LoginRequest,
   type MovementListQuery,
   type PageQueryParams,
@@ -21,13 +30,18 @@ import {
   type Sku,
   type Supplier,
   type TodoListQuery,
+  type UpdateCustomerRequest,
   type UpdateSkuRequest,
   type UpdateSupplierRequest,
 } from '@erp/contracts';
 import { IamService } from '../../application/iam.service';
+import { CustomerService } from '../../application/customer.service';
 import { DashboardService } from '../../application/dashboard.service';
 import { PurchaseService } from '../../application/purchase.service';
+import { RmaService } from '../../application/rma.service';
 import { SalesService, TENANT_ID } from '../../application/sales.service';
+import { StocktakeService } from '../../application/stocktake.service';
+import { TransferService } from '../../application/transfer.service';
 import { DatabasePort, DomainError } from '../../domain/ports';
 import { ZodValidationPipe } from './zod-validation.pipe';
 
@@ -37,6 +51,10 @@ export class ErpController {
     private readonly iam: IamService,
     private readonly sales: SalesService,
     private readonly purchase: PurchaseService,
+    private readonly customer: CustomerService,
+    private readonly rma: RmaService,
+    private readonly transfer: TransferService,
+    private readonly stocktake: StocktakeService,
     private readonly dashboard: DashboardService,
     private readonly db: DatabasePort,
   ) {}
@@ -98,6 +116,34 @@ export class ErpController {
   @Get('users/me')
   me(@Headers('authorization') authorization?: string) {
     return this.iam.currentUser(authorization);
+  }
+
+  @Get('customers')
+  async customers(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.customer.listCustomers(query);
+  }
+
+  @Get('customers/:id')
+  async getCustomer(@Param('id') id: string) {
+    return this.customer.findCustomer(id);
+  }
+
+  @Post('customers')
+  createCustomer(
+    @Body(new ZodValidationPipe(CreateCustomerRequestSchema)) body: CreateCustomerRequest,
+  ) {
+    return this.customer.createCustomer(body);
+  }
+
+  /** 客户编辑/停用：编码不可改，其余字段按需合并 */
+  @Patch('customers/:id')
+  updateCustomer(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateCustomerRequestSchema)) body: UpdateCustomerRequest,
+  ) {
+    return this.customer.updateCustomer(id, body);
   }
 
   @Get('purchase/suppliers')
@@ -245,5 +291,107 @@ export class ErpController {
   @Post('sales/orders/:id/cancel')
   cancel(@Param('id') id: string) {
     return this.sales.cancelOrder(id);
+  }
+
+  @Get('rmas')
+  async rmas(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.rma.listRmas(query);
+  }
+
+  @Get('rmas/:id')
+  async getRma(@Param('id') id: string) {
+    return this.rma.findRma(id);
+  }
+
+  @Post('rmas')
+  createRma(
+    @Body(new ZodValidationPipe(CreateRmaRequestSchema)) body: CreateRmaRequest,
+  ) {
+    return this.rma.createRma(body);
+  }
+
+  @Post('rmas/:id/approve')
+  approveRma(@Param('id') id: string) {
+    return this.rma.approveRma(id);
+  }
+
+  @Post('rmas/:id/reject')
+  rejectRma(@Param('id') id: string) {
+    return this.rma.rejectRma(id);
+  }
+
+  @Post('rmas/:id/receive')
+  receiveRma(@Param('id') id: string) {
+    return this.rma.receiveRma(id);
+  }
+
+  @Post('rmas/:id/refund')
+  refundRma(@Param('id') id: string) {
+    return this.rma.refundRma(id);
+  }
+
+  @Post('rmas/:id/cancel')
+  cancelRma(@Param('id') id: string) {
+    return this.rma.cancelRma(id);
+  }
+
+  @Get('transfers')
+  async transfers(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.transfer.listTransfers(query);
+  }
+
+  @Get('transfers/:id')
+  async getTransfer(@Param('id') id: string) {
+    return this.transfer.findTransfer(id);
+  }
+
+  @Post('transfers')
+  createTransfer(
+    @Body(new ZodValidationPipe(CreateTransferRequestSchema)) body: CreateTransferRequest,
+  ) {
+    return this.transfer.createTransfer(body);
+  }
+
+  @Post('transfers/:id/complete')
+  completeTransfer(@Param('id') id: string) {
+    return this.transfer.completeTransfer(id);
+  }
+
+  @Post('transfers/:id/cancel')
+  cancelTransfer(@Param('id') id: string) {
+    return this.transfer.cancelTransfer(id);
+  }
+
+  @Get('stocktakes')
+  async stocktakes(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.stocktake.listStocktakes(query);
+  }
+
+  @Get('stocktakes/:id')
+  async getStocktake(@Param('id') id: string) {
+    return this.stocktake.findStocktake(id);
+  }
+
+  @Post('stocktakes')
+  createStocktake(
+    @Body(new ZodValidationPipe(CreateStocktakeRequestSchema)) body: CreateStocktakeRequest,
+  ) {
+    return this.stocktake.createStocktake(body);
+  }
+
+  @Post('stocktakes/:id/confirm')
+  confirmStocktake(@Param('id') id: string) {
+    return this.stocktake.confirmStocktake(id);
+  }
+
+  @Post('stocktakes/:id/cancel')
+  cancelStocktake(@Param('id') id: string) {
+    return this.stocktake.cancelStocktake(id);
   }
 }

@@ -1,12 +1,16 @@
 import type {
+  Customer,
   InventoryLot,
   PageQueryParams,
   PriceList,
   Principal,
   PurchaseOrder,
+  Rma,
   SalesOrder,
   Sku,
+  Stocktake,
   Supplier,
+  Transfer,
 } from '@erp/contracts';
 
 export type DomainErrorCode =
@@ -47,6 +51,7 @@ export abstract class DatabasePort {
   abstract saveSku(sku: Sku): Promise<void>;
   abstract findPriceBySku(skuId: string): Promise<PriceList | null>;
   abstract listLots(params: PageQueryParams): Promise<Page<InventoryLot>>;
+  abstract findLot(id: string): Promise<InventoryLot | null>;
   abstract findLotBySku(skuId: string): Promise<InventoryLot | null>;
   abstract saveLot(lot: InventoryLot): Promise<void>;
   abstract saveOrder(order: SalesOrder): Promise<void>;
@@ -58,6 +63,18 @@ export abstract class DatabasePort {
   abstract listPurchaseOrders(params: PageQueryParams): Promise<Page<PurchaseOrder>>;
   abstract findPurchaseOrder(id: string): Promise<PurchaseOrder | null>;
   abstract savePurchaseOrder(order: PurchaseOrder): Promise<void>;
+  abstract listCustomers(params: PageQueryParams): Promise<Page<Customer>>;
+  abstract findCustomer(id: string): Promise<Customer | null>;
+  abstract saveCustomer(customer: Customer): Promise<void>;
+  abstract listRmas(params: PageQueryParams): Promise<Page<Rma>>;
+  abstract findRma(id: string): Promise<Rma | null>;
+  abstract saveRma(rma: Rma): Promise<void>;
+  abstract listTransfers(params: PageQueryParams): Promise<Page<Transfer>>;
+  abstract findTransfer(id: string): Promise<Transfer | null>;
+  abstract saveTransfer(transfer: Transfer): Promise<void>;
+  abstract listStocktakes(params: PageQueryParams): Promise<Page<Stocktake>>;
+  abstract findStocktake(id: string): Promise<Stocktake | null>;
+  abstract saveStocktake(stocktake: Stocktake): Promise<void>;
   /** 订单确认与库存占用必须在同一事务边界；回调收到事务内的仓储句柄 */
   abstract runInTransaction<T>(fn: (tx: DatabasePort) => Promise<T>): Promise<T>;
 }

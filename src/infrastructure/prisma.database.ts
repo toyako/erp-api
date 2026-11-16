@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type {
+  Customer,
   InventoryLot,
   OrderLine,
   PageQueryParams,
@@ -7,10 +8,13 @@ import type {
   Principal,
   PurchaseOrder,
   PurchaseOrderLine,
+  Rma,
   Role,
   SalesOrder,
   Sku,
+  Stocktake,
   Supplier,
+  Transfer,
 } from '@erp/contracts';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { DatabasePort, type Page } from '../domain/ports';
@@ -56,6 +60,7 @@ function toLot(row: {
   tenantId: string;
   skuId: string;
   batchCode: string;
+  location: string;
   availableQty: number;
   reservedQty: number;
   totalQty: number;
@@ -65,6 +70,7 @@ function toLot(row: {
     tenantId: row.tenantId,
     skuId: row.skuId,
     batchCode: row.batchCode,
+    location: row.location,
     availableQty: row.availableQty,
     reservedQty: row.reservedQty,
     totalQty: row.totalQty,
@@ -90,6 +96,115 @@ function toSupplier(row: {
     ...(row.phone ? { phone: row.phone } : {}),
     rating: row.rating,
     enabled: row.enabled,
+  };
+}
+
+function toCustomer(row: {
+  id: string;
+  tenantId: string;
+  code: string;
+  name: string;
+  phone: string | null;
+  level: string;
+  enabled: boolean;
+  createdAt: Date;
+}): Customer {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    code: row.code,
+    name: row.name,
+    phone: row.phone,
+    level: row.level as Customer['level'],
+    enabled: row.enabled,
+    // 累计消费不在库里存，由 CustomerService 聚合订单算出
+    totalSpent: { amount: 0, currency: 'CNY' },
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function toRma(row: {
+  id: string;
+  tenantId: string;
+  rmaNo: string;
+  orderId: string;
+  skuId: string;
+  quantity: number;
+  reason: string;
+  status: string;
+  refundAmount: number;
+  currency: string;
+  createdAt: Date;
+  receivedAt: Date | null;
+}): Rma {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    rmaNo: row.rmaNo,
+    orderId: row.orderId,
+    skuId: row.skuId,
+    quantity: row.quantity,
+    reason: row.reason,
+    status: row.status as Rma['status'],
+    refundAmount: { amount: row.refundAmount, currency: row.currency },
+    createdAt: row.createdAt.toISOString(),
+    receivedAt: row.receivedAt ? row.receivedAt.toISOString() : null,
+  };
+}
+
+function toTransfer(row: {
+  id: string;
+  tenantId: string;
+  transferNo: string;
+  skuId: string;
+  fromLocation: string;
+  toLocation: string;
+  quantity: number;
+  status: string;
+  batchCode: string | null;
+  createdAt: Date;
+  completedAt: Date | null;
+}): Transfer {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    transferNo: row.transferNo,
+    skuId: row.skuId,
+    fromLocation: row.fromLocation,
+    toLocation: row.toLocation,
+    quantity: row.quantity,
+    status: row.status as Transfer['status'],
+    batchCode: row.batchCode,
+    createdAt: row.createdAt.toISOString(),
+    completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+  };
+}
+
+function toStocktake(row: {
+  id: string;
+  tenantId: string;
+  stocktakeNo: string;
+  lotId: string;
+  skuId: string;
+  countedQty: number;
+  systemQty: number;
+  difference: number;
+  status: string;
+  createdAt: Date;
+  confirmedAt: Date | null;
+}): Stocktake {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    stocktakeNo: row.stocktakeNo,
+    lotId: row.lotId,
+    skuId: row.skuId,
+    countedQty: row.countedQty,
+    systemQty: row.systemQty,
+    difference: row.difference,
+    status: row.status as Stocktake['status'],
+    createdAt: row.createdAt.toISOString(),
+    confirmedAt: row.confirmedAt ? row.confirmedAt.toISOString() : null,
   };
 }
 
@@ -194,6 +309,11 @@ export class PrismaDatabase extends DatabasePort {
     return toPage(rows.map(toLot), total, params);
   }
 
+  async findLot(id: string) {
+    const row = await this.client.inventoryLot.findUnique({ where: { id } });
+    return row ? toLot(row) : null;
+  }
+
   async findLotBySku(skuId: string) {
     const row = await this.client.inventoryLot.findFirst({ where: { skuId } });
     return row ? toLot(row) : null;
@@ -207,6 +327,7 @@ export class PrismaDatabase extends DatabasePort {
         tenantId: lot.tenantId,
         skuId: lot.skuId,
         batchCode: lot.batchCode,
+        location: lot.location,
         availableQty: lot.availableQty,
         reservedQty: lot.reservedQty,
         totalQty: lot.totalQty,
@@ -226,12 +347,13 @@ export class PrismaDatabase extends DatabasePort {
         id: order.id,
         tenantId: order.tenantId,
         orderNo: order.orderNo,
+        customerId: order.customerId ?? null,
         status: order.status,
         amount: order.total.amount,
         currency: order.total.currency,
         createdAt: new Date(order.createdAt),
       },
-      update: { status: order.status, amount: order.total.amount },
+      update: { status: order.status, amount: order.total.amount, customerId: order.customerId ?? null },
     });
     // schema 未定义反向关系字段，行项单独写入（事务超时已放宽到 20s）
     await this.client.orderLine.deleteMany({ where: { orderId: order.id } });
@@ -283,12 +405,146 @@ export class PrismaDatabase extends DatabasePort {
     });
   }
 
+  async listCustomers(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.customer.findMany({ orderBy: { code: 'asc' }, ...pageArgs(params) }),
+      this.client.customer.count(),
+    ]);
+    return toPage(rows.map(toCustomer), total, params);
+  }
+
+  async findCustomer(id: string) {
+    const row = await this.client.customer.findUnique({ where: { id } });
+    return row ? toCustomer(row) : null;
+  }
+
+  async saveCustomer(customer: Customer) {
+    await this.client.customer.upsert({
+      where: { id: customer.id },
+      create: {
+        id: customer.id,
+        tenantId: customer.tenantId,
+        code: customer.code,
+        name: customer.name,
+        phone: customer.phone,
+        level: customer.level,
+        enabled: customer.enabled,
+      },
+      update: {
+        name: customer.name,
+        phone: customer.phone,
+        level: customer.level,
+        enabled: customer.enabled,
+      },
+    });
+  }
+
   async listOrders(params: PageQueryParams) {
     const [rows, total] = await Promise.all([
       this.client.salesOrder.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
       this.client.salesOrder.count(),
     ]);
     return toPage(await Promise.all(rows.map((row) => this.hydrate(row))), total, params);
+  }
+
+  async listRmas(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.rma.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.rma.count(),
+    ]);
+    return toPage(rows.map(toRma), total, params);
+  }
+
+  async findRma(id: string) {
+    const row = await this.client.rma.findUnique({ where: { id } });
+    return row ? toRma(row) : null;
+  }
+
+  async saveRma(rma: Rma) {
+    await this.client.rma.upsert({
+      where: { id: rma.id },
+      create: {
+        id: rma.id,
+        tenantId: rma.tenantId,
+        rmaNo: rma.rmaNo,
+        orderId: rma.orderId,
+        skuId: rma.skuId,
+        quantity: rma.quantity,
+        reason: rma.reason,
+        status: rma.status,
+        refundAmount: rma.refundAmount.amount,
+        currency: rma.refundAmount.currency,
+        createdAt: new Date(rma.createdAt),
+        receivedAt: rma.receivedAt ? new Date(rma.receivedAt) : null,
+      },
+      update: { status: rma.status, receivedAt: rma.receivedAt ? new Date(rma.receivedAt) : null },
+    });
+  }
+
+  async listTransfers(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.transfer.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.transfer.count(),
+    ]);
+    return toPage(rows.map(toTransfer), total, params);
+  }
+
+  async findTransfer(id: string) {
+    const row = await this.client.transfer.findUnique({ where: { id } });
+    return row ? toTransfer(row) : null;
+  }
+
+  async saveTransfer(transfer: Transfer) {
+    await this.client.transfer.upsert({
+      where: { id: transfer.id },
+      create: {
+        id: transfer.id,
+        tenantId: transfer.tenantId,
+        transferNo: transfer.transferNo,
+        skuId: transfer.skuId,
+        fromLocation: transfer.fromLocation,
+        toLocation: transfer.toLocation,
+        quantity: transfer.quantity,
+        status: transfer.status,
+        batchCode: transfer.batchCode,
+        createdAt: new Date(transfer.createdAt),
+        completedAt: transfer.completedAt ? new Date(transfer.completedAt) : null,
+      },
+      update: { status: transfer.status, batchCode: transfer.batchCode, completedAt: transfer.completedAt ? new Date(transfer.completedAt) : null },
+    });
+  }
+
+  async listStocktakes(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.stocktake.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.stocktake.count(),
+    ]);
+    return toPage(rows.map(toStocktake), total, params);
+  }
+
+  async findStocktake(id: string) {
+    const row = await this.client.stocktake.findUnique({ where: { id } });
+    return row ? toStocktake(row) : null;
+  }
+
+  async saveStocktake(stocktake: Stocktake) {
+    await this.client.stocktake.upsert({
+      where: { id: stocktake.id },
+      create: {
+        id: stocktake.id,
+        tenantId: stocktake.tenantId,
+        stocktakeNo: stocktake.stocktakeNo,
+        lotId: stocktake.lotId,
+        skuId: stocktake.skuId,
+        countedQty: stocktake.countedQty,
+        systemQty: stocktake.systemQty,
+        difference: stocktake.difference,
+        status: stocktake.status,
+        createdAt: new Date(stocktake.createdAt),
+        confirmedAt: stocktake.confirmedAt ? new Date(stocktake.confirmedAt) : null,
+      },
+      update: { status: stocktake.status, confirmedAt: stocktake.confirmedAt ? new Date(stocktake.confirmedAt) : null },
+    });
   }
 
   async listPurchaseOrders(params: PageQueryParams) {
@@ -351,6 +607,7 @@ export class PrismaDatabase extends DatabasePort {
     id: string;
     tenantId: string;
     orderNo: string;
+    customerId: string | null;
     status: string;
     amount: number;
     currency: string;
@@ -361,6 +618,7 @@ export class PrismaDatabase extends DatabasePort {
       id: row.id,
       tenantId: row.tenantId,
       orderNo: row.orderNo,
+      ...(row.customerId ? { customerId: row.customerId } : {}),
       status: row.status as SalesOrder['status'],
       lines: lines.map(
         (line): OrderLine => ({
