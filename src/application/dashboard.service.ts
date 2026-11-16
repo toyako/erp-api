@@ -98,22 +98,25 @@ export class DashboardService {
     let salesAmount = 0;
     let fulfilledCount = 0;
     for (const o of orders) {
-      salesAmount += o.total.amount;
       statusMap.set(o.status, (statusMap.get(o.status) ?? 0) + 1);
       if (o.status === 'fulfilled') fulfilledCount += 1;
+      // 已取消的单不是销售额：与 getReport 口径一致（报表侧一直排除 cancelled）
+      if (o.status === 'cancelled') continue;
+      salesAmount += o.total.amount;
     }
 
     const today = todayUtc();
     const trend7 = Array.from({ length: 7 }, (_, i) => {
       const date = addDays(today, i - 6);
       const amount = orders
-        .filter((o) => o.createdAt.slice(0, 10) === date)
+        .filter((o) => o.status !== 'cancelled' && o.createdAt.slice(0, 10) === date)
         .reduce((n, o) => n + o.total.amount, 0);
       return { date, amount };
     });
 
     const qtyBySku = new Map<string, number>();
     for (const o of orders) {
+      if (o.status === 'cancelled') continue;
       for (const line of o.lines) {
         qtyBySku.set(line.skuId, (qtyBySku.get(line.skuId) ?? 0) + line.quantity);
       }
