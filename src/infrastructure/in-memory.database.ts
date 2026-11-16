@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type {
+  AuditEvent,
+  AuditEventListQuery,
   Customer,
   InventoryLot,
   PageQueryParams,
@@ -32,6 +34,7 @@ interface State {
   rmas: Rma[];
   transfers: Transfer[];
   stocktakes: Stocktake[];
+  auditEvents: AuditEvent[];
 }
 
 const spuId = '00000000-0000-4000-8000-000000000100';
@@ -48,12 +51,12 @@ function seed(): State {
     { id: spuId, tenantId: TENANT_ID, name: '云智物标准套件', categoryCode: 'SOFTWARE', description: '演示商品，数据全部虚构', enabled: true },
   ];
   const skus: Sku[] = [
-    { id: skuA, spuId, code: 'SKU-001', spec: '标准版', unit: '件', enabled: true },
-    { id: skuB, spuId, code: 'SKU-002', spec: '专业版', unit: '件', enabled: true },
+    { id: skuA, spuId, code: 'SKU-001', spec: '标准版', unit: '套', enabled: true },
+    { id: skuB, spuId, code: 'SKU-002', spec: '专业版', unit: '套', enabled: true },
   ];
   const prices: PriceList[] = [
-    { id: '00000000-0000-4000-8000-000000000301', skuId: skuA, channelCode: 'default', price: { amount: 19900, currency: 'CNY' }, effectiveFrom: '2026-01-01T00:00:00.000Z' },
-    { id: '00000000-0000-4000-8000-000000000302', skuId: skuB, channelCode: 'default', price: { amount: 29900, currency: 'CNY' }, effectiveFrom: '2026-01-01T00:00:00.000Z' },
+    { id: '00000000-0000-4000-8000-000000000301', skuId: skuA, channelCode: 'DIRECT', price: { amount: 19900, currency: 'CNY' }, effectiveFrom: '2026-01-01T00:00:00.000Z' },
+    { id: '00000000-0000-4000-8000-000000000302', skuId: skuB, channelCode: 'DIRECT', price: { amount: 29900, currency: 'CNY' }, effectiveFrom: '2026-01-01T00:00:00.000Z' },
   ];
   const lots: InventoryLot[] = [
     { id: '00000000-0000-4000-8000-000000000201', tenantId: TENANT_ID, skuId: skuA, batchCode: 'BATCH-001', location: DEFAULT_LOCATION, availableQty: 100, reservedQty: 0, totalQty: 100 },
@@ -64,14 +67,14 @@ function seed(): State {
    * InMemory 种子里没有销售订单，orderId 用固定演示值，仅供列表与待办/流水派生展示。
    */
   const rmas: Rma[] = [
-    { id: '00000000-0000-4000-8000-000000000902', tenantId: TENANT_ID, rmaNo: 'RMA-DEMO-001', orderId: '00000000-0000-4000-8000-000000000901', skuId: skuA, quantity: 1, reason: '质量问题', status: 'requested', refundAmount: { amount: 19900, currency: 'CNY' }, createdAt: '2026-11-16T00:00:00.000Z', receivedAt: null },
+    { id: '00000000-0000-4000-8000-000000000902', tenantId: TENANT_ID, rmaNo: 'RMA-DEMO-001', orderId: '00000000-0000-4000-8000-000000000901', skuId: skuA, quantity: 1, reason: '质量问题', status: 'requested', refundAmount: { amount: 19900, currency: 'CNY' }, rejectReason: null, createdAt: '2026-11-16T00:00:00.000Z', receivedAt: null },
   ];
   /**
-   * 演示调拨与盘点：与 Prisma seed / admin 演示兜底同口径（TRF-DEMO-001 主仓→华东仓 ×5 待完成；
+   * 演示调拨与盘点：与 Prisma seed / admin 演示兜底同口径（TRF-DEMO-001 主仓→华东仓 ×5 草稿待提交；
    * STK-DEMO-001 针对 BATCH-001 实盘 100、系统 100、差异 0 待确认）。数量与种子批次一致，未动 lots。
    */
   const transfers: Transfer[] = [
-    { id: '00000000-0000-4000-8000-000000000903', tenantId: TENANT_ID, transferNo: 'TRF-DEMO-001', skuId: skuA, fromLocation: DEFAULT_LOCATION, toLocation: '华东仓', quantity: 5, status: 'draft', batchCode: null, createdAt: '2026-11-16T00:00:00.000Z', completedAt: null },
+    { id: '00000000-0000-4000-8000-000000000903', tenantId: TENANT_ID, transferNo: 'TRF-DEMO-001', skuId: skuA, fromLocation: DEFAULT_LOCATION, toLocation: '华东仓', quantity: 5, status: 'draft', batchCode: null, rejectReason: null, createdAt: '2026-11-16T00:00:00.000Z', completedAt: null },
   ];
   const stocktakes: Stocktake[] = [
     { id: '00000000-0000-4000-8000-000000000904', tenantId: TENANT_ID, stocktakeNo: 'STK-DEMO-001', lotId: '00000000-0000-4000-8000-000000000201', skuId: skuA, countedQty: 100, systemQty: 100, difference: 0, status: 'draft', createdAt: '2026-11-16T00:00:00.000Z', confirmedAt: null },
@@ -90,6 +93,7 @@ function seed(): State {
     rmas,
     transfers,
     stocktakes,
+    auditEvents: [],
   };
 }
 
@@ -226,7 +230,13 @@ export class InMemoryDatabase extends DatabasePort {
   }
 
   async listCustomers(params: PageQueryParams) {
-    const sorted = [...this.state.customers].sort((a, b) => a.code.localeCompare(b.code));
+    const kw = params.search?.trim().toLowerCase() ?? '';
+    const filtered = kw
+      ? this.state.customers.filter((c) =>
+          [c.code, c.name, c.phone ?? ''].some((v) => v.toLowerCase().includes(kw)),
+        )
+      : this.state.customers;
+    const sorted = [...filtered].sort((a, b) => a.code.localeCompare(b.code));
     return pageOf(sorted.map((c) => ({ ...c })), params);
   }
 
@@ -291,6 +301,29 @@ export class InMemoryDatabase extends DatabasePort {
     const copy = { ...stocktake };
     if (i >= 0) this.state.stocktakes[i] = copy;
     else this.state.stocktakes.push(copy);
+  }
+
+  /** 审计列表：createdAt 倒序；entity 精确过滤、action 子串过滤，与 Prisma 适配器同口径 */
+  async listAuditEvents(params: AuditEventListQuery) {
+    const filtered = this.state.auditEvents.filter((e) => {
+      if (params.entity && e.targetType !== params.entity) return false;
+      if (params.action && !e.action.includes(params.action)) return false;
+      return true;
+    });
+    const sorted = [...filtered].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return pageOf(sorted.map((e) => ({ ...e, payload: e.payload ? { ...e.payload } : null })), params);
+  }
+
+  async findAuditEvent(id: string) {
+    const found = this.state.auditEvents.find((e) => e.id === id);
+    return found ? { ...found, payload: found.payload ? { ...found.payload } : null } : null;
+  }
+
+  async saveAuditEvent(event: AuditEvent) {
+    const i = this.state.auditEvents.findIndex((e) => e.id === event.id);
+    const copy = { ...event, payload: event.payload ? { ...event.payload } : null };
+    if (i >= 0) this.state.auditEvents[i] = copy;
+    else this.state.auditEvents.push(copy);
   }
 
   /** 失败时回滚到事务前快照，保证「占库存 + 建订单」原子性 */

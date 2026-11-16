@@ -8,6 +8,7 @@ import type {
   SalesOrder,
 } from '@erp/contracts';
 import { DatabasePort, DomainError, PaymentGatewayPort } from '../domain/ports';
+import { nextDocNo } from '../domain/doc-no';
 import { assertTransition } from '../domain/order-state';
 
 export const TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -64,7 +65,7 @@ export class SalesService {
       const order: SalesOrder = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        orderNo: `ERP-${Date.now().toString(36).toUpperCase()}`,
+        orderNo: nextDocNo('ERP'),
         ...(customerId ? { customerId } : {}),
         status: 'draft',
         lines,

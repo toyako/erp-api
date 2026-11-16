@@ -57,7 +57,7 @@ describe("ProductService", () => {
 
     const created = await product.createPrice({
       skuId: sku.id,
-      channelCode: "default",
+      channelCode: "DIRECT",
       price: { amount: 24900, currency: "CNY" },
       effectiveFrom: "2026-11-16T00:00:00.000Z",
     })

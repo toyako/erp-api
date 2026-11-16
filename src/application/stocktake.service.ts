@@ -6,6 +6,7 @@ import type {
   Stocktake,
 } from '@erp/contracts';
 import { DatabasePort, DomainError } from '../domain/ports';
+import { nextDocNo } from '../domain/doc-no';
 import { assertStocktakeTransition } from '../domain/stocktake-state';
 import { TENANT_ID } from './sales.service';
 
@@ -33,7 +34,7 @@ export class StocktakeService {
     const stocktake: Stocktake = {
       id: randomUUID(),
       tenantId: TENANT_ID,
-      stocktakeNo: `STK-${Date.now().toString(36).toUpperCase()}`,
+      stocktakeNo: nextDocNo('STK'),
       lotId: lot.id,
       skuId: lot.skuId,
       countedQty: input.countedQty,

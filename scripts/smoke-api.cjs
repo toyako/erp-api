@@ -47,8 +47,8 @@ async function main() {
   if (!spu) throw new Error('no seed SPU');
 
   // 新建 SKU：成功 + 编码重复 409；价格档案：列表 + 新建（用 SKU-002，避免改 SKU-001 的定价影响后续订单金额断言）
-  const skuCreated = await call('/products/skus', jsonPost({ spuId: spu.id, code: 'SKU-SMOKE', spec: '冒烟版', unit: '件' }));
-  const skuDuplicate = await call('/products/skus', jsonPost({ spuId: spu.id, code: 'SKU-SMOKE', spec: '重复', unit: '件' }));
+  const skuCreated = await call('/products/skus', jsonPost({ spuId: spu.id, code: 'SKU-SMOKE', spec: '冒烟版', unit: '套' }));
+  const skuDuplicate = await call('/products/skus', jsonPost({ spuId: spu.id, code: 'SKU-SMOKE', spec: '重复', unit: '套' }));
   const prices = await call('/products/prices');
   const priceCreated = await call('/products/prices', jsonPost({ skuId: skuB.id, price: { amount: 31900, currency: 'CNY' } }));
 
@@ -60,6 +60,8 @@ async function main() {
   const customers = await call('/customers');
   const newCustomer = await call('/customers', jsonPost({ code: 'CUST-SMOKE', name: '冒烟客户', level: 'vip' }));
   const gotCustomer = newCustomer.body.id ? await call(`/customers/${newCustomer.body.id}`) : { status: 0, body: {} };
+  const customerSearch = await call('/customers?search=CUST-SMOKE');
+  const customerSearchNone = await call('/customers?search=' + encodeURIComponent('不存在'));
 
   const before = await call('/inventory/lots');
   const created = await call('/sales/orders', jsonPost({ lines: [{ skuId: sku.id, quantity: 2 }] }));
@@ -88,12 +90,21 @@ async function main() {
   const lotAfterRma = (await call('/inventory/lots')).body.items?.[0] || {};
   const rmaRefunded = rmaId ? await call(`/rmas/${rmaId}/refund`, { method: 'POST' }) : { status: 0, body: {} };
   const rmaOver = await call('/rmas', jsonPost({ orderId: id, skuId: sku.id, quantity: 2, reason: '超余量' }));
+  // 拒绝带原因：第二单退货（余量剩 1）拒绝成功并落库原因；无原因拒绝报 400
+  const rma2Created = await call('/rmas', jsonPost({ orderId: id, skuId: sku.id, quantity: 1, reason: '第二单退货' }));
+  const rma2Id = rma2Created.body.id;
+  const rma2Rejected = rma2Id ? await call(`/rmas/${rma2Id}/reject`, jsonPost({ reason: '已过退货期限' })) : { status: 0, body: {} };
+  const rma3Created = await call('/rmas', jsonPost({ orderId: id, skuId: sku.id, quantity: 1, reason: '第三单退货' }));
+  const rma3Id = rma3Created.body.id;
+  const rma3RejectNoReason = rma3Id ? await call(`/rmas/${rma3Id}/reject`, { method: 'POST' }) : { status: 0, body: {} };
 
-  // 调拨与盘点闭环：建调拨→完成（源批次扣数、目标新建同批次）→建盘点→确认（总量按实盘改）
+  // 调拨与盘点闭环：建调拨→提交→审核通过→完成（源批次扣数、目标新建同批次）→建盘点→确认（总量按实盘改）
   const transfersList = await call('/transfers');
   const stocktakesList = await call('/stocktakes');
   const transferCreated = await call('/transfers', jsonPost({ skuId: sku.id, fromLocation: '主仓', toLocation: '华东仓', quantity: 2 }));
   const transferId = transferCreated.body.id;
+  const transferSubmitted = transferId ? await call(`/transfers/${transferId}/submit`, { method: 'POST' }) : { status: 0, body: {} };
+  const transferApproved = transferId ? await call(`/transfers/${transferId}/approve`, { method: 'POST' }) : { status: 0, body: {} };
   const transferCompleted = transferId ? await call(`/transfers/${transferId}/complete`, { method: 'POST' }) : { status: 0, body: {} };
   const lotsAfterTransfer = (await call('/inventory/lots')).body.items || [];
   const sourceAfterTransfer = lotsAfterTransfer.find((l) => l.batchCode === 'BATCH-001' && l.location === '主仓') || {};
@@ -114,6 +125,11 @@ async function main() {
   const payables = await call('/dashboard/payables?page=1&pageSize=2');
   const activity = await call('/dashboard/recent-activity');
   const movements = await call('/dashboard/movements?page=1&pageSize=2');
+
+  // 审计日志：写请求已记（建客户等），entity 过滤有效；GET 本身不记（两次查总数不变）
+  const auditAll = await call('/audit/events?page=1&pageSize=5');
+  const auditCustomers = await call('/audit/events?entity=customers&page=1&pageSize=5');
+  const auditAllAgain = await call('/audit/events?page=1&pageSize=5');
 
   const lotBefore = (before.body.items || [])[0] || {};
   const lotAfter = (after.body.items || [])[0] || {};
@@ -136,6 +152,8 @@ async function main() {
     customersList: customers.status === 200 && Array.isArray(customers.body.items),
     customerCreated: newCustomer.status === 201 && newCustomer.body.code === 'CUST-SMOKE' && newCustomer.body.totalSpent && newCustomer.body.totalSpent.amount === 0,
     customerTotalSpent: gotCustomer.status === 200 && gotCustomer.body.totalSpent && typeof gotCustomer.body.totalSpent.amount === 'number',
+    customerSearch: customerSearch.status === 200 && customerSearch.body.total === 1 && customerSearch.body.items[0].code === 'CUST-SMOKE',
+    customerSearchNone: customerSearchNone.status === 200 && customerSearchNone.body.total === 0,
     orderCreated: created.status === 201 && created.body.status === 'draft',
     serverSidePricing: created.body.total && created.body.total.amount === 39800,
     stockReserved: lotAfter.reservedQty === (lotBefore.reservedQty || 0) + 2,
@@ -165,12 +183,19 @@ async function main() {
     rmaRestocked: lotAfterRma.availableQty === lotCancelled.availableQty + 1 && lotAfterRma.totalQty === lotCancelled.totalQty + 1,
     rmaRefunded: rmaRefunded.body.status === 'refunded',
     rmaOverRejected: rmaOver.status === 409 && rmaOver.body.code === 'CONFLICT',
+    rmaRejectedWithReason: rma2Rejected.body.status === 'rejected' && rma2Rejected.body.rejectReason === '已过退货期限',
+    rmaRejectNoReason: rma3RejectNoReason.status === 400,
     transferListed: transfersList.status === 200 && Array.isArray(transfersList.body.items),
     stocktakeListed: stocktakesList.status === 200 && Array.isArray(stocktakesList.body.items),
     transferCreated: transferCreated.status === 201 && transferCreated.body.status === 'draft' && transferCreated.body.batchCode === null,
+    transferSubmitted: transferSubmitted.body.status === 'submitted',
+    transferApproved: transferApproved.body.status === 'approved',
     transferCompleted: transferCompleted.body.status === 'completed' && transferCompleted.body.batchCode === 'BATCH-001' && sourceAfterTransfer.availableQty === lotAfterRma.availableQty - 2 && destAfterTransfer.availableQty === 2 && destAfterTransfer.totalQty === 2,
     stocktakeCreated: stocktakeCreated.status === 201 && stocktakeCreated.body.status === 'draft' && stocktakeCreated.body.systemQty === sourceAfterTransfer.totalQty && stocktakeCreated.body.difference === -1,
     stocktakeConfirmed: stocktakeConfirmed.body.status === 'confirmed' && sourceAfterStocktake.totalQty === sourceAfterTransfer.totalQty - 1 && sourceAfterStocktake.availableQty === sourceAfterTransfer.totalQty - 1,
+    auditRecorded: auditAll.status === 200 && auditAll.body.total >= 1 && (auditAll.body.items || []).every((e) => typeof e.action === 'string' && e.action.length > 0),
+    auditEntityFilter: auditCustomers.status === 200 && auditCustomers.body.total >= 1 && (auditCustomers.body.items || []).every((e) => e.targetType === 'customers') && (auditCustomers.body.items || []).some((e) => e.action === 'POST /customers'),
+    auditGetNotLogged: auditAllAgain.body.total === auditAll.body.total,
   };
 
   console.log(JSON.stringify({ checks, sample: { orderTotal: created.body.total, reservedQty: lotAfter.reservedQty } }, null, 2));

@@ -9,6 +9,7 @@ import type {
   RmaStatus,
 } from '@erp/contracts';
 import { DatabasePort, DomainError, type Page } from '../domain/ports';
+import { nextDocNo } from '../domain/doc-no';
 import { assertRmaTransition } from '../domain/rma-state';
 import { TENANT_ID } from './sales.service';
 
@@ -54,13 +55,14 @@ export class RmaService {
       const rma: Rma = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        rmaNo: `RMA-${Date.now().toString(36).toUpperCase()}`,
+        rmaNo: nextDocNo('RMA'),
         orderId: order.id,
         skuId: input.skuId,
         quantity: input.quantity,
         reason: input.reason,
         status: 'requested',
         refundAmount: multiplyMoney(line.unitPrice, input.quantity),
+        rejectReason: null,
         createdAt: new Date().toISOString(),
         receivedAt: null,
       };
@@ -77,10 +79,15 @@ export class RmaService {
     return rma;
   }
 
-  async rejectRma(id: string): Promise<Rma> {
+  /** 拒绝：原因必填（无原因 400），落库到 rejectReason；只允许 requested → rejected */
+  async rejectRma(id: string, reason: string): Promise<Rma> {
     const rma = await this.requireRma(id);
+    if (!reason?.trim()) {
+      throw new DomainError('INVALID_STATE', '拒绝原因不能为空', 400);
+    }
     assertRmaTransition(rma.status, 'rejected');
     rma.status = 'rejected';
+    rma.rejectReason = reason.trim();
     await this.db.saveRma(rma);
     return rma;
   }

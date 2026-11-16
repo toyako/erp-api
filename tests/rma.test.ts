@@ -137,22 +137,35 @@ describe("RmaService", () => {
     await expect(rma.cancelRma(created.id)).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
   })
 
-  it("拒绝后终态不可再动", async () => {
+  it("拒绝后终态不可再动；拒绝带原因落库", async () => {
     const { db, sales, rma } = makeServices()
     const sku = await firstSku(db)
     const order = await fulfilledOrder(db, sales, sku.id, 1)
     const created = await rma.createRma({ orderId: order.id, skuId: sku.id, quantity: 1, reason: "不想要了" })
-    const rejected = await rma.rejectRma(created.id)
+    const rejected = await rma.rejectRma(created.id, "已过退货期限")
     expect(rejected.status).toBe("rejected")
+    expect(rejected.rejectReason).toBe("已过退货期限")
+    expect((await rma.findRma(created.id)).rejectReason).toBe("已过退货期限")
     await expect(rma.approveRma(created.id)).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
     await expect(rma.cancelRma(created.id)).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
+  })
+
+  it("拒绝无原因报 400（空串与空白串均不通过）", async () => {
+    const { db, sales, rma } = makeServices()
+    const sku = await firstSku(db)
+    const order = await fulfilledOrder(db, sales, sku.id, 1)
+    const created = await rma.createRma({ orderId: order.id, skuId: sku.id, quantity: 1, reason: "不想要了" })
+    await expect(rma.rejectRma(created.id, "")).rejects.toMatchObject({ code: "INVALID_STATE", status: 400 })
+    await expect(rma.rejectRma(created.id, "   ")).rejects.toMatchObject({ code: "INVALID_STATE", status: 400 })
+    // 失败后仍是待审核态
+    expect((await rma.findRma(created.id)).status).toBe("requested")
   })
 
   it("收货时该 SKU 无批次则新建批次（batchCode 取退货单号）", async () => {
     const { db, rma } = makeServices()
     // 直接存一单已发货订单：新 SKU 无批次、无价格，不走建单校验
     const newSkuId = "00000000-0000-4000-8000-000000000103"
-    await db.saveSku({ id: newSkuId, spuId: "00000000-0000-4000-8000-000000000100", code: "SKU-003", spec: "测试版", unit: "件", enabled: true })
+    await db.saveSku({ id: newSkuId, spuId: "00000000-0000-4000-8000-000000000100", code: "SKU-003", spec: "测试版", unit: "套", enabled: true })
     await db.saveOrder({
       id: "00000000-0000-4000-8000-000000000501",
       tenantId: "00000000-0000-4000-8000-000000000001",

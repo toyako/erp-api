@@ -1,4 +1,6 @@
 import type {
+  AuditEvent,
+  AuditEventListQuery,
   Customer,
   InventoryLot,
   PageQueryParams,
@@ -84,6 +86,10 @@ export abstract class DatabasePort {
   abstract listStocktakes(params: PageQueryParams): Promise<Page<Stocktake>>;
   abstract findStocktake(id: string): Promise<Stocktake | null>;
   abstract saveStocktake(stocktake: Stocktake): Promise<void>;
+  /** 审计日志：拦截器横切写入；列表按 createdAt 倒序，entity 精确过滤、action 子串过滤 */
+  abstract listAuditEvents(params: AuditEventListQuery): Promise<Page<AuditEvent>>;
+  abstract findAuditEvent(id: string): Promise<AuditEvent | null>;
+  abstract saveAuditEvent(event: AuditEvent): Promise<void>;
   /** 订单确认与库存占用必须在同一事务边界；回调收到事务内的仓储句柄 */
   abstract runInTransaction<T>(fn: (tx: DatabasePort) => Promise<T>): Promise<T>;
 }

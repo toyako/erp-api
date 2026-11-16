@@ -251,7 +251,7 @@ export class DashboardService {
     return { range, buckets, ranking, turnover, slow };
   }
 
-  /** 待办派生：订单按状态一条、退货待审核一条、调拨待完成一条、盘点待确认一条、已提交采购单待入库一条、可用量 < 20 的批次一条预警；先过滤再分页 */
+  /** 待办派生：订单按状态一条、退货待审核一条、调拨按状态三条（待提交/待审核/待完成）、盘点待确认一条、已提交采购单待入库一条、可用量 < 20 的批次一条预警；先过滤再分页 */
   async listTodos(query: TodoListQuery): Promise<Page<TodoItem>> {
     const { orders, lots, rmas, transfers, stocktakes, purchaseOrders } = await this.loadAll();
     const items: TodoItem[] = [];
@@ -281,6 +281,10 @@ export class DashboardService {
     }
     for (const t of transfers) {
       if (t.status === 'draft') {
+        items.push({ id: `trf-${t.id}`, type: 'transfer', typeLabel: '调拨', cls: 'blue', title: '调拨待提交', refNo: t.transferNo, actor: '系统', time: t.createdAt, done: false, action: '去提交', to: '/erp/stock/transfer' });
+      } else if (t.status === 'submitted') {
+        items.push({ id: `trf-${t.id}`, type: 'transfer', typeLabel: '调拨', cls: 'orange', title: '调拨待审核', refNo: t.transferNo, actor: '系统', time: t.createdAt, done: false, action: '去审核', to: '/erp/stock/transfer' });
+      } else if (t.status === 'approved') {
         items.push({ id: `trf-${t.id}`, type: 'transfer', typeLabel: '调拨', cls: 'blue', title: '调拨待完成', refNo: t.transferNo, actor: '系统', time: t.createdAt, done: false, action: '去完成', to: '/erp/stock/transfer' });
       }
     }

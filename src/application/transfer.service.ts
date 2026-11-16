@@ -7,6 +7,7 @@ import type {
   Transfer,
 } from '@erp/contracts';
 import { DatabasePort, DomainError, type Page } from '../domain/ports';
+import { nextDocNo } from '../domain/doc-no';
 import { assertTransferTransition } from '../domain/transfer-state';
 import { TENANT_ID } from './sales.service';
 
@@ -34,16 +35,48 @@ export class TransferService {
     const transfer: Transfer = {
       id: randomUUID(),
       tenantId: TENANT_ID,
-      transferNo: `TRF-${Date.now().toString(36).toUpperCase()}`,
+      transferNo: nextDocNo('TRF'),
       skuId: input.skuId,
       fromLocation: input.fromLocation,
       toLocation: input.toLocation,
       quantity: input.quantity,
       status: 'draft',
       batchCode: null,
+      rejectReason: null,
       createdAt: new Date().toISOString(),
       completedAt: null,
     };
+    await this.db.saveTransfer(transfer);
+    return transfer;
+  }
+
+  /** 提交审核：draft → submitted */
+  async submitTransfer(id: string): Promise<Transfer> {
+    const transfer = await this.requireTransfer(id);
+    assertTransferTransition(transfer.status, 'submitted');
+    transfer.status = 'submitted';
+    await this.db.saveTransfer(transfer);
+    return transfer;
+  }
+
+  /** 审核通过：submitted → approved */
+  async approveTransfer(id: string): Promise<Transfer> {
+    const transfer = await this.requireTransfer(id);
+    assertTransferTransition(transfer.status, 'approved');
+    transfer.status = 'approved';
+    await this.db.saveTransfer(transfer);
+    return transfer;
+  }
+
+  /** 拒绝：原因必填（无原因 400），落库到 rejectReason；只允许 submitted → rejected */
+  async rejectTransfer(id: string, reason: string): Promise<Transfer> {
+    const transfer = await this.requireTransfer(id);
+    if (!reason?.trim()) {
+      throw new DomainError('INVALID_STATE', '拒绝原因不能为空', 400);
+    }
+    assertTransferTransition(transfer.status, 'rejected');
+    transfer.status = 'rejected';
+    transfer.rejectReason = reason.trim();
     await this.db.saveTransfer(transfer);
     return transfer;
   }

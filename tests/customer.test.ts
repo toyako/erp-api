@@ -124,4 +124,29 @@ describe("CustomerService", () => {
     expect(after.reservedQty).toBe(before.reservedQty)
     expect(after.availableQty).toBe(before.availableQty)
   })
+
+  it("客户搜索：按编码/名称/电话子串匹配，三字段 OR", async () => {
+    const { customers } = makeServices()
+    await customers.createCustomer({ code: "CUST-001", name: "华东贸易有限公司", phone: "0571-88889999" })
+    await customers.createCustomer({ code: "CUST-002", name: "李明" })
+    await customers.createCustomer({ code: "CUST-003", name: "华南电子科技", phone: "020-11112222" })
+
+    const byName = await customers.listCustomers({ page: 1, pageSize: 20, search: "华" })
+    expect(byName.total).toBe(2)
+    expect(byName.items.map((c) => c.code).sort()).toEqual(["CUST-001", "CUST-003"])
+
+    const byCode = await customers.listCustomers({ page: 1, pageSize: 20, search: "CUST-002" })
+    expect(byCode.total).toBe(1)
+    expect(byCode.items[0]?.name).toBe("李明")
+
+    const byPhone = await customers.listCustomers({ page: 1, pageSize: 20, search: "8888" })
+    expect(byPhone.total).toBe(1)
+    expect(byPhone.items[0]?.code).toBe("CUST-001")
+
+    const none = await customers.listCustomers({ page: 1, pageSize: 20, search: "不存在" })
+    expect(none.total).toBe(0)
+
+    const all = await customers.listCustomers({ page: 1, pageSize: 20 })
+    expect(all.total).toBe(3)
+  })
 })

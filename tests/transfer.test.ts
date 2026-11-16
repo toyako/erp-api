@@ -60,6 +60,8 @@ describe("TransferService", () => {
     expect((await lotsOf(db, sku.id)).some((l) => l.location === "华东仓")).toBe(false)
 
     const created = await transfer.createTransfer({ skuId: sku.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 5 })
+    await transfer.submitTransfer(created.id)
+    await transfer.approveTransfer(created.id)
     const done = await transfer.completeTransfer(created.id)
     expect(done.status).toBe("completed")
     expect(done.batchCode).toBe("BATCH-001")
@@ -85,8 +87,12 @@ describe("TransferService", () => {
     const { db, transfer } = makeServices()
     const sku = await firstSku(db)
     const first = await transfer.createTransfer({ skuId: sku.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 5 })
+    await transfer.submitTransfer(first.id)
+    await transfer.approveTransfer(first.id)
     await transfer.completeTransfer(first.id)
     const second = await transfer.createTransfer({ skuId: sku.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 3 })
+    await transfer.submitTransfer(second.id)
+    await transfer.approveTransfer(second.id)
     await transfer.completeTransfer(second.id)
 
     const lots = await lotsOf(db, sku.id)
@@ -101,13 +107,17 @@ describe("TransferService", () => {
     const b = await secondSku(db)
     // SKU-002 的批次只在华东仓，主仓没有
     const noSource = await transfer.createTransfer({ skuId: b.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 1 })
+    await transfer.submitTransfer(noSource.id)
+    await transfer.approveTransfer(noSource.id)
     await expect(transfer.completeTransfer(noSource.id)).rejects.toMatchObject({ code: "CONFLICT", status: 409 })
 
     // SKU-001 主仓可用 100，调 101 不足
     const over = await transfer.createTransfer({ skuId: a.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 101 })
+    await transfer.submitTransfer(over.id)
+    await transfer.approveTransfer(over.id)
     await expect(transfer.completeTransfer(over.id)).rejects.toMatchObject({ code: "CONFLICT", status: 409 })
-    // 失败后仍是草稿、库存未动
-    expect((await transfer.findTransfer(over.id)).status).toBe("draft")
+    // 失败后仍是待完成态（approved）、库存未动
+    expect((await transfer.findTransfer(over.id)).status).toBe("approved")
     expect((await lotsOf(db, a.id)).find((l) => l.location === "主仓")!.availableQty).toBe(100)
   })
 
@@ -134,5 +144,55 @@ describe("TransferService", () => {
     expect(all.items.map((x) => x.id)).toContain(b.id)
     // 演示种子 TRF-DEMO-001 的创建时间是当天 00:00，最旧，排在最后
     expect(all.items[all.items.length - 1]!.transferNo).toBe("TRF-DEMO-001")
+  })
+
+  it("草稿直接完成报 409；审批流 draft→submitted→approved→completed 走通", async () => {
+    const { db, transfer } = makeServices()
+    const sku = await firstSku(db)
+    const created = await transfer.createTransfer({ skuId: sku.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 5 })
+    await expect(transfer.completeTransfer(created.id)).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
+    await expect(transfer.approveTransfer(created.id)).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
+
+    const submitted = await transfer.submitTransfer(created.id)
+    expect(submitted.status).toBe("submitted")
+    await expect(transfer.submitTransfer(created.id)).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
+    const approved = await transfer.approveTransfer(created.id)
+    expect(approved.status).toBe("approved")
+    const done = await transfer.completeTransfer(created.id)
+    expect(done.status).toBe("completed")
+    expect(done.batchCode).toBe("BATCH-001")
+  })
+
+  it("拒绝带原因落库；无原因报 400；草稿拒绝报 409；rejected 为终态", async () => {
+    const { db, transfer } = makeServices()
+    const sku = await firstSku(db)
+    const draft = await transfer.createTransfer({ skuId: sku.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 1 })
+    await expect(transfer.rejectTransfer(draft.id, "缺货")).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
+
+    const created = await transfer.createTransfer({ skuId: sku.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 1 })
+    await transfer.submitTransfer(created.id)
+    await expect(transfer.rejectTransfer(created.id, "")).rejects.toMatchObject({ code: "INVALID_STATE", status: 400 })
+    await expect(transfer.rejectTransfer(created.id, "   ")).rejects.toMatchObject({ code: "INVALID_STATE", status: 400 })
+
+    const rejected = await transfer.rejectTransfer(created.id, "源仓盘点中")
+    expect(rejected.status).toBe("rejected")
+    expect(rejected.rejectReason).toBe("源仓盘点中")
+    expect((await transfer.findTransfer(created.id)).rejectReason).toBe("源仓盘点中")
+    await expect(transfer.approveTransfer(created.id)).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
+    await expect(transfer.cancelTransfer(created.id)).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
+  })
+
+  it("提交后可取消；已通过可取消；取消后不可再提交", async () => {
+    const { db, transfer } = makeServices()
+    const sku = await firstSku(db)
+    const a = await transfer.createTransfer({ skuId: sku.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 1 })
+    await transfer.submitTransfer(a.id)
+    expect((await transfer.cancelTransfer(a.id)).status).toBe("cancelled")
+
+    const b = await transfer.createTransfer({ skuId: sku.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 1 })
+    await transfer.submitTransfer(b.id)
+    await transfer.approveTransfer(b.id)
+    expect((await transfer.cancelTransfer(b.id)).status).toBe("cancelled")
+    await expect(transfer.submitTransfer(b.id)).rejects.toMatchObject({ code: "INVALID_STATE", status: 409 })
   })
 })

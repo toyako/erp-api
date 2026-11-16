@@ -9,6 +9,7 @@ import type {
   PurchaseOrderLine,
 } from '@erp/contracts';
 import { DatabasePort, DomainError } from '../domain/ports';
+import { nextDocNo } from '../domain/doc-no';
 import { assertPurchaseTransition } from '../domain/purchase-state';
 import { TENANT_ID } from './sales.service';
 
@@ -48,7 +49,7 @@ export class PurchaseService {
       const order: PurchaseOrder = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        orderNo: `PO-${Date.now().toString(36).toUpperCase()}`,
+        orderNo: nextDocNo('PO'),
         supplierId: supplier.id,
         status: 'draft',
         lines,

@@ -184,7 +184,7 @@ async function main() {
     }
   }
 
-  // 演示调拨单：SKU-001 主仓→华东仓 ×5，待完成。调拨不挂外键，库里没有就建，与 InMemory / admin 兜底同口径。
+  // 演示调拨单：SKU-001 主仓→华东仓 ×5，草稿待提交。调拨不挂外键，库里没有就建，与 InMemory / admin 兜底同口径。
   await prisma.transfer.upsert({
     where: { transferNo: 'TRF-DEMO-001' },
     update: {},

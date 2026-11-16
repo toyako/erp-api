@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import {
+  AuditEventListQuerySchema,
   CreateCustomerRequestSchema,
   CreateOrderRequestSchema,
   CreatePriceRequestSchema,
@@ -14,6 +15,8 @@ import {
   LoginRequestSchema,
   MovementListQuerySchema,
   PageQueryParamsSchema,
+  RejectRmaRequestSchema,
+  RejectTransferRequestSchema,
   ReportQuerySchema,
   TodoListQuerySchema,
   UpdateCustomerRequestSchema,
@@ -21,6 +24,7 @@ import {
   UpdatePrincipalRequestSchema,
   UpdateSkuRequestSchema,
   UpdateSupplierRequestSchema,
+  type AuditEventListQuery,
   type CreateCustomerRequest,
   type CreateOrderRequest,
   type CreatePriceRequest,
@@ -34,6 +38,8 @@ import {
   type LoginRequest,
   type MovementListQuery,
   type PageQueryParams,
+  type RejectRmaRequest,
+  type RejectTransferRequest,
   type ReportQuery,
   type Sku,
   type Supplier,
@@ -54,9 +60,11 @@ import { SalesService, TENANT_ID } from '../../application/sales.service';
 import { StocktakeService } from '../../application/stocktake.service';
 import { TransferService } from '../../application/transfer.service';
 import { DatabasePort, DomainError } from '../../domain/ports';
+import { AuditInterceptor } from './audit.interceptor';
 import { ZodValidationPipe } from './zod-validation.pipe';
 
 @Controller()
+@UseInterceptors(AuditInterceptor)
 export class ErpController {
   constructor(
     private readonly iam: IamService,
@@ -390,8 +398,11 @@ export class ErpController {
   }
 
   @Post('rmas/:id/reject')
-  rejectRma(@Param('id') id: string) {
-    return this.rma.rejectRma(id);
+  rejectRma(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(RejectRmaRequestSchema)) body: RejectRmaRequest,
+  ) {
+    return this.rma.rejectRma(id, body.reason);
   }
 
   @Post('rmas/:id/receive')
@@ -426,6 +437,24 @@ export class ErpController {
     @Body(new ZodValidationPipe(CreateTransferRequestSchema)) body: CreateTransferRequest,
   ) {
     return this.transfer.createTransfer(body);
+  }
+
+  @Post('transfers/:id/submit')
+  submitTransfer(@Param('id') id: string) {
+    return this.transfer.submitTransfer(id);
+  }
+
+  @Post('transfers/:id/approve')
+  approveTransfer(@Param('id') id: string) {
+    return this.transfer.approveTransfer(id);
+  }
+
+  @Post('transfers/:id/reject')
+  rejectTransfer(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(RejectTransferRequestSchema)) body: RejectTransferRequest,
+  ) {
+    return this.transfer.rejectTransfer(id, body.reason);
   }
 
   @Post('transfers/:id/complete')
@@ -465,5 +494,13 @@ export class ErpController {
   @Post('stocktakes/:id/cancel')
   cancelStocktake(@Param('id') id: string) {
     return this.stocktake.cancelStocktake(id);
+  }
+
+  /** 操作审计日志列表：entity 精确过滤、action 子串过滤；只读，不记审计 */
+  @Get('audit/events')
+  async auditEvents(
+    @Query(new ZodValidationPipe(AuditEventListQuerySchema)) query: AuditEventListQuery,
+  ) {
+    return this.db.listAuditEvents(query);
   }
 }

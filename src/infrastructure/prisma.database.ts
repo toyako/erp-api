@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type {
+  AuditEvent,
+  AuditEventListQuery,
   Customer,
   InventoryLot,
   OrderLine,
@@ -153,6 +155,7 @@ function toRma(row: {
   status: string;
   refundAmount: number;
   currency: string;
+  rejectReason: string | null;
   createdAt: Date;
   receivedAt: Date | null;
 }): Rma {
@@ -166,6 +169,7 @@ function toRma(row: {
     reason: row.reason,
     status: row.status as Rma['status'],
     refundAmount: { amount: row.refundAmount, currency: row.currency },
+    rejectReason: row.rejectReason,
     createdAt: row.createdAt.toISOString(),
     receivedAt: row.receivedAt ? row.receivedAt.toISOString() : null,
   };
@@ -181,6 +185,7 @@ function toTransfer(row: {
   quantity: number;
   status: string;
   batchCode: string | null;
+  rejectReason: string | null;
   createdAt: Date;
   completedAt: Date | null;
 }): Transfer {
@@ -194,6 +199,7 @@ function toTransfer(row: {
     quantity: row.quantity,
     status: row.status as Transfer['status'],
     batchCode: row.batchCode,
+    rejectReason: row.rejectReason,
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt ? row.completedAt.toISOString() : null,
   };
@@ -230,6 +236,33 @@ function toStocktake(row: {
 /** 分页参数换算：Prisma skip/take */
 function pageArgs(params: PageQueryParams) {
   return { skip: (params.page - 1) * params.pageSize, take: params.pageSize };
+}
+
+/** 审计事件：payload 只存 { detail } 请求体摘要；其他形状的旧数据一律视为 null */
+function toAuditEvent(row: {
+  id: string;
+  tenantId: string;
+  actorId: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  payload: unknown;
+  createdAt: Date;
+}): AuditEvent {
+  const payload =
+    row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+      ? (row.payload as Record<string, unknown>)
+      : null;
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    actorId: row.actorId,
+    action: row.action,
+    targetType: row.targetType,
+    targetId: row.targetId,
+    payload: payload && typeof payload.detail === 'string' ? { detail: payload.detail } : null,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 /** 组装分页结果，与 HTTP 响应形状一致 */
@@ -494,9 +527,19 @@ export class PrismaDatabase extends DatabasePort {
   }
 
   async listCustomers(params: PageQueryParams) {
+    const kw = params.search?.trim();
+    const where = kw
+      ? {
+          OR: [
+            { code: { contains: kw, mode: 'insensitive' as const } },
+            { name: { contains: kw, mode: 'insensitive' as const } },
+            { phone: { contains: kw, mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
     const [rows, total] = await Promise.all([
-      this.client.customer.findMany({ orderBy: { code: 'asc' }, ...pageArgs(params) }),
-      this.client.customer.count(),
+      this.client.customer.findMany({ where, orderBy: { code: 'asc' }, ...pageArgs(params) }),
+      this.client.customer.count({ where }),
     ]);
     return toPage(rows.map(toCustomer), total, params);
   }
@@ -562,10 +605,11 @@ export class PrismaDatabase extends DatabasePort {
         status: rma.status,
         refundAmount: rma.refundAmount.amount,
         currency: rma.refundAmount.currency,
+        rejectReason: rma.rejectReason,
         createdAt: new Date(rma.createdAt),
         receivedAt: rma.receivedAt ? new Date(rma.receivedAt) : null,
       },
-      update: { status: rma.status, receivedAt: rma.receivedAt ? new Date(rma.receivedAt) : null },
+      update: { status: rma.status, rejectReason: rma.rejectReason, receivedAt: rma.receivedAt ? new Date(rma.receivedAt) : null },
     });
   }
 
@@ -595,10 +639,11 @@ export class PrismaDatabase extends DatabasePort {
         quantity: transfer.quantity,
         status: transfer.status,
         batchCode: transfer.batchCode,
+        rejectReason: transfer.rejectReason,
         createdAt: new Date(transfer.createdAt),
         completedAt: transfer.completedAt ? new Date(transfer.completedAt) : null,
       },
-      update: { status: transfer.status, batchCode: transfer.batchCode, completedAt: transfer.completedAt ? new Date(transfer.completedAt) : null },
+      update: { status: transfer.status, batchCode: transfer.batchCode, rejectReason: transfer.rejectReason, completedAt: transfer.completedAt ? new Date(transfer.completedAt) : null },
     });
   }
 
@@ -632,6 +677,46 @@ export class PrismaDatabase extends DatabasePort {
         confirmedAt: stocktake.confirmedAt ? new Date(stocktake.confirmedAt) : null,
       },
       update: { status: stocktake.status, confirmedAt: stocktake.confirmedAt ? new Date(stocktake.confirmedAt) : null },
+    });
+  }
+
+  /** 审计列表：createdAt 倒序；entity 精确过滤、action 子串过滤，与 InMemory 适配器同口径 */
+  async listAuditEvents(params: AuditEventListQuery) {
+    const where = {
+      ...(params.entity ? { targetType: params.entity } : {}),
+      ...(params.action ? { action: { contains: params.action } } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.client.auditEvent.findMany({ where, orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.auditEvent.count({ where }),
+    ]);
+    return toPage(rows.map(toAuditEvent), total, params);
+  }
+
+  async findAuditEvent(id: string) {
+    const row = await this.client.auditEvent.findUnique({ where: { id } });
+    return row ? toAuditEvent(row) : null;
+  }
+
+  async saveAuditEvent(event: AuditEvent) {
+    await this.client.auditEvent.upsert({
+      where: { id: event.id },
+      create: {
+        id: event.id,
+        tenantId: event.tenantId,
+        actorId: event.actorId,
+        action: event.action,
+        targetType: event.targetType,
+        targetId: event.targetId,
+        payload: event.payload ?? Prisma.JsonNull,
+        createdAt: new Date(event.createdAt),
+      },
+      update: {
+        action: event.action,
+        targetType: event.targetType,
+        targetId: event.targetId,
+        payload: event.payload ?? Prisma.JsonNull,
+      },
     });
   }
 

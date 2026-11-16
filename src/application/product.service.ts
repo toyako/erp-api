@@ -66,7 +66,7 @@ export class ProductService {
     const price: PriceList = {
       id: randomUUID(),
       skuId: input.skuId,
-      channelCode: input.channelCode ?? 'default',
+      channelCode: input.channelCode ?? 'DIRECT',
       price: input.price,
       effectiveFrom: input.effectiveFrom ?? new Date().toISOString(),
     };

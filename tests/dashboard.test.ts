@@ -120,8 +120,8 @@ describe("DashboardService", () => {
     expect(all.items.find((i) => i.id === `confirm-${draft.id}`)).toMatchObject({ type: "order", cls: "orange", action: "去确认" })
     // 演示种子里的待审核退货单也有一条待办
     expect(all.items.find((i) => i.type === "rma")).toMatchObject({ typeLabel: "退货", cls: "orange", title: "退货待审核", refNo: "RMA-DEMO-001", done: false, action: "去审核", to: "/erp/sales/rma" })
-    // 演示种子里的待完成调拨与待确认盘点各有一条待办
-    expect(all.items.find((i) => i.type === "transfer")).toMatchObject({ typeLabel: "调拨", cls: "blue", title: "调拨待完成", refNo: "TRF-DEMO-001", done: false, action: "去完成", to: "/erp/stock/transfer" })
+    // 演示种子里的待提交调拨与待确认盘点各有一条待办（TRF-DEMO-001 为草稿态）
+    expect(all.items.find((i) => i.type === "transfer")).toMatchObject({ typeLabel: "调拨", cls: "blue", title: "调拨待提交", refNo: "TRF-DEMO-001", done: false, action: "去提交", to: "/erp/stock/transfer" })
     expect(all.items.find((i) => i.type === "stocktake")).toMatchObject({ typeLabel: "盘点", cls: "orange", title: "盘点待确认", refNo: "STK-DEMO-001", done: false, action: "去确认", to: "/erp/stock/transfer" })
 
     expect((await dashboard.listTodos({ page: 1, pageSize: 20, type: "order" })).total).toBe(3)
@@ -195,11 +195,16 @@ describe("DashboardService", () => {
     expect(all.items[0]).toMatchObject({ type: "purchase", typeLabel: "采购", title: "采购单待入库", refNo: submittedPo.orderNo, done: false, action: "去入库", to: "/erp/purchase/orders" })
 
     const pending = await dashboard.listTodos({ page: 1, pageSize: 20, status: "pending" })
-    // 注意：三单同一毫秒建，orderNo 可能相同，按待办 id（带采购单 id）断言才准确
+    // 单号防撞：三单同一毫秒建，orderNo 仍必不重（doc-no 进程内同毫秒去重），按单号与待办 id 双断言
     const purchaseIds = pending.items.filter((i) => i.type === "purchase").map((i) => i.id)
     expect(purchaseIds).toEqual([`po-${submittedPo.id}`])
     expect(purchaseIds).not.toContain(`po-${draftPo.id}`)
     expect(purchaseIds).not.toContain(`po-${receivedPo.id}`)
+    const purchaseRefNos = pending.items.filter((i) => i.type === "purchase").map((i) => i.refNo)
+    expect(purchaseRefNos).toEqual([submittedPo.orderNo])
+    expect(purchaseRefNos).not.toContain(draftPo.orderNo)
+    expect(purchaseRefNos).not.toContain(receivedPo.orderNo)
+    expect(new Set([draftPo.orderNo, receivedPo.orderNo, submittedPo.orderNo]).size).toBe(3)
   })
 
   it("最近活动取前 5 单", async () => {
@@ -236,8 +241,10 @@ describe("DashboardService", () => {
     const stocktake = new StocktakeService(db)
     const a = await firstSku(db)
 
-    // 调拨 SKU-001 主仓→华东仓 5 件并完成
+    // 调拨 SKU-001 主仓→华东仓 5 件，走完提交→审核→完成
     const t = await transfer.createTransfer({ skuId: a.id, fromLocation: "主仓", toLocation: "华东仓", quantity: 5 })
+    await transfer.submitTransfer(t.id)
+    await transfer.approveTransfer(t.id)
     await transfer.completeTransfer(t.id)
     // 盘点 BATCH-002（SKU-002，50 件）实盘 48，确认；再盘一次实盘 48，零差异不记流水
     const lotB = (await db.listLots({ page: 1, pageSize: 20 })).items.find((l) => l.batchCode === "BATCH-002")!

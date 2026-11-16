@@ -14,6 +14,7 @@ import { InMemoryDatabase } from './infrastructure/in-memory.database';
 import { MockPaymentGateway } from './infrastructure/mock-payment.gateway';
 import { PrismaDatabase } from './infrastructure/prisma.database';
 import { ErpController } from './interface/http/erp.controller';
+import { AuditInterceptor } from './interface/http/audit.interceptor';
 
 /** ERP_DB_ADAPTER=prisma 时连真实数据库，否则用内存演示适配器 */
 function createDatabase(): DatabasePort {
@@ -35,6 +36,7 @@ function createDatabase(): DatabasePort {
     TransferService,
     StocktakeService,
     DashboardService,
+    AuditInterceptor,
     { provide: DatabasePort, useFactory: createDatabase },
     { provide: PaymentGatewayPort, useClass: MockPaymentGateway },
   ],
