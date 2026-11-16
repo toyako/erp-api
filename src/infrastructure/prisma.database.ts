@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type {
+  ApprovalRule,
   AuditEvent,
   AuditEventListQuery,
   BalanceTransaction,
@@ -10,6 +11,7 @@ import type {
   Customer,
   CustomerFollowup,
   CustomerFollowupListQuery,
+  Exchange,
   GoodsReceipt,
   GoodsReceiptListQuery,
   InventoryLot,
@@ -253,6 +255,64 @@ function toRma(row: {
     rejectReason: row.rejectReason,
     createdAt: row.createdAt.toISOString(),
     receivedAt: row.receivedAt ? row.receivedAt.toISOString() : null,
+  };
+}
+
+function toApprovalRule(row: {
+  id: string;
+  tenantId: string;
+  docType: string;
+  thresholdAmount: number;
+  thresholdCurrency: string;
+  approverRole: string;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}): ApprovalRule {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    docType: row.docType as ApprovalRule['docType'],
+    thresholdAmount: { amount: row.thresholdAmount, currency: row.thresholdCurrency },
+    approverRole: row.approverRole as ApprovalRule['approverRole'],
+    enabled: row.enabled,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toExchange(row: {
+  id: string;
+  tenantId: string;
+  exchangeNo: string;
+  orderId: string;
+  returnSkuId: string;
+  returnQty: number;
+  exchangeSkuId: string;
+  exchangeQty: number;
+  diffAmount: number | null;
+  diffCurrency: string;
+  status: string;
+  rejectReason: string | null;
+  createdAt: Date;
+  receivedAt: Date | null;
+  exchangedAt: Date | null;
+}): Exchange {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    exchangeNo: row.exchangeNo,
+    orderId: row.orderId,
+    returnSkuId: row.returnSkuId,
+    returnQty: row.returnQty,
+    exchangeSkuId: row.exchangeSkuId,
+    exchangeQty: row.exchangeQty,
+    diffAmount: row.diffAmount === null ? null : { amount: row.diffAmount, currency: row.diffCurrency },
+    status: row.status as Exchange['status'],
+    rejectReason: row.rejectReason,
+    createdAt: row.createdAt.toISOString(),
+    receivedAt: row.receivedAt ? row.receivedAt.toISOString() : null,
+    exchangedAt: row.exchangedAt ? row.exchangedAt.toISOString() : null,
   };
 }
 
@@ -777,6 +837,11 @@ export class PrismaDatabase extends DatabasePort {
     return row ? toLot(row) : null;
   }
 
+  async findLotByBatchCode(batchCode: string) {
+    const row = await this.client.inventoryLot.findFirst({ where: { batchCode } });
+    return row ? toLot(row) : null;
+  }
+
   async saveLot(lot: InventoryLot) {
     await this.client.inventoryLot.upsert({
       where: { id: lot.id },
@@ -1196,6 +1261,81 @@ export class PrismaDatabase extends DatabasePort {
         confirmedAt: stocktake.confirmedAt ? new Date(stocktake.confirmedAt) : null,
       },
       update: { status: stocktake.status, confirmedAt: stocktake.confirmedAt ? new Date(stocktake.confirmedAt) : null },
+    });
+  }
+
+  async listApprovalRules() {
+    const rows = await this.client.approvalRule.findMany({ orderBy: { createdAt: 'asc' } });
+    return rows.map(toApprovalRule);
+  }
+
+  async findApprovalRule(id: string) {
+    const row = await this.client.approvalRule.findUnique({ where: { id } });
+    return row ? toApprovalRule(row) : null;
+  }
+
+  async saveApprovalRule(rule: ApprovalRule) {
+    await this.client.approvalRule.upsert({
+      where: { id: rule.id },
+      create: {
+        id: rule.id,
+        tenantId: rule.tenantId,
+        docType: rule.docType,
+        thresholdAmount: rule.thresholdAmount.amount,
+        thresholdCurrency: rule.thresholdAmount.currency,
+        approverRole: rule.approverRole,
+        enabled: rule.enabled,
+        createdAt: new Date(rule.createdAt),
+        updatedAt: new Date(rule.updatedAt),
+      },
+      update: {
+        thresholdAmount: rule.thresholdAmount.amount,
+        thresholdCurrency: rule.thresholdAmount.currency,
+        enabled: rule.enabled,
+        updatedAt: new Date(rule.updatedAt),
+      },
+    });
+  }
+
+  async listExchanges(params: PageQueryParams) {
+    const [rows, total] = await Promise.all([
+      this.client.exchange.findMany({ orderBy: { createdAt: 'desc' }, ...pageArgs(params) }),
+      this.client.exchange.count(),
+    ]);
+    return toPage(rows.map(toExchange), total, params);
+  }
+
+  async findExchange(id: string) {
+    const row = await this.client.exchange.findUnique({ where: { id } });
+    return row ? toExchange(row) : null;
+  }
+
+  async saveExchange(exchange: Exchange) {
+    await this.client.exchange.upsert({
+      where: { id: exchange.id },
+      create: {
+        id: exchange.id,
+        tenantId: exchange.tenantId,
+        exchangeNo: exchange.exchangeNo,
+        orderId: exchange.orderId,
+        returnSkuId: exchange.returnSkuId,
+        returnQty: exchange.returnQty,
+        exchangeSkuId: exchange.exchangeSkuId,
+        exchangeQty: exchange.exchangeQty,
+        diffAmount: exchange.diffAmount?.amount ?? null,
+        diffCurrency: exchange.diffAmount?.currency ?? 'CNY',
+        status: exchange.status,
+        rejectReason: exchange.rejectReason,
+        createdAt: new Date(exchange.createdAt),
+        receivedAt: exchange.receivedAt ? new Date(exchange.receivedAt) : null,
+        exchangedAt: exchange.exchangedAt ? new Date(exchange.exchangedAt) : null,
+      },
+      update: {
+        status: exchange.status,
+        rejectReason: exchange.rejectReason,
+        receivedAt: exchange.receivedAt ? new Date(exchange.receivedAt) : null,
+        exchangedAt: exchange.exchangedAt ? new Date(exchange.exchangedAt) : null,
+      },
     });
   }
 

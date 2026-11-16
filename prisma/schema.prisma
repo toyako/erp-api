@@ -412,3 +412,41 @@ model Stocktake {
   @@index([tenantId, status])
   @@map("stocktakes")
 }
+
+/// 审批规则：v1 只有采购单门槛一条；订单总额 ≥ 门槛时须由 approverRole 审批
+model ApprovalRule {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  docType           String   @map("doc_type")
+  thresholdAmount   Int      @map("threshold_amount")
+  thresholdCurrency String   @default("CNY") @db.Char(3) @map("threshold_currency")
+  approverRole      String   @default("admin") @map("approver_role")
+  enabled           Boolean  @default(true)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @default(now()) @map("updated_at")
+
+  @@unique([tenantId, docType])
+  @@map("approval_rules")
+}
+
+/// 换货单：退一个 SKU、换入另一个 SKU；差价只记数，不走真实支付
+model Exchange {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  exchangeNo    String    @unique @map("exchange_no")
+  orderId       String    @map("order_id")
+  returnSkuId   String    @map("return_sku_id")
+  returnQty     Int       @map("return_qty")
+  exchangeSkuId String    @map("exchange_sku_id")
+  exchangeQty   Int       @map("exchange_qty")
+  diffAmount    Int?      @map("diff_amount")
+  diffCurrency  String    @default("CNY") @db.Char(3) @map("diff_currency")
+  status        String
+  rejectReason  String?   @map("reject_reason")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  receivedAt    DateTime? @map("received_at")
+  exchangedAt   DateTime? @map("exchanged_at")
+
+  @@index([tenantId, status])
+  @@map("exchanges")
+}

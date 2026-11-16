@@ -224,6 +224,26 @@ async function main() {
   const auditCustomers = await call('/audit/events?entity=customers&page=1&pageSize=5');
   const auditAllAgain = await call('/audit/events?page=1&pageSize=5');
 
+  // 第 8 批：审批规则（种子一条 ≥ ¥10,000）+ 换货闭环 + CSV 导入
+  const approvalRules = await call('/approval-rules');
+  const approvalRule = Array.isArray(approvalRules.body) ? approvalRules.body[0] : {};
+  const approvalPatched = approvalRule.id ? await call(`/approval-rules/${approvalRule.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ thresholdAmount: { amount: 1000000, currency: 'CNY' } }) }) : { status: 0, body: {} };
+  // 换货：对已履约的首单（SKU-001 ×2，退货已占 1，余量剩 1）退 1 换 SKU-002 ×1；
+  // 差价 +¥120：SKU-002 现行价是冒烟前段新建的 ¥319 价（非种子 ¥299），减退货行价 ¥199
+  const excCreated = id ? await call('/sales/exchanges', jsonPost({ orderId: id, returnSkuId: sku.id, returnQty: 1, exchangeSkuId: skuB.id, exchangeQty: 1 })) : { status: 0, body: {} };
+  const excId = excCreated.body.id;
+  const excApproved = excId ? await call(`/sales/exchanges/${excId}/approve`, { method: 'POST' }) : { status: 0, body: {} };
+  const excReceived = excId ? await call(`/sales/exchanges/${excId}/receive`, { method: 'POST' }) : { status: 0, body: {} };
+  const excDone = excId ? await call(`/sales/exchanges/${excId}/exchange`, { method: 'POST' }) : { status: 0, body: {} };
+  const excOver = id ? await call('/sales/exchanges', jsonPost({ orderId: id, returnSkuId: sku.id, returnQty: 1, exchangeSkuId: skuB.id, exchangeQty: 1 })) : { status: 0, body: {} };
+  // CSV 导入：客户 1 建 + 1 编码重复跳过；盘点 BATCH-002 实盘 49 建 1 张（不确认，不动库存）+ 不存在批次错 1 条
+  const importForm = new FormData();
+  importForm.append('file', new Blob(['code,name,phone,level\nCUST-IMP,冒烟客户,13800000000,regular\nCUST-IMP,重复编码,13800000001,regular\n'], { type: 'text/csv' }), 'customers.csv');
+  const importCustomers = await call('/import/customers', { method: 'POST', body: importForm });
+  const importForm2 = new FormData();
+  importForm2.append('file', new Blob(['batchCode,countedQty\nBATCH-002,49\nBATCH-999,10\n'], { type: 'text/csv' }), 'stocktake.csv');
+  const importStocktakes = await call('/import/stocktake', { method: 'POST', body: importForm2 });
+
   const lotBefore = (before.body.items || [])[0] || {};
   const lotAfter = (after.body.items || [])[0] || {};
   const lotRolled = (afterRollback.body.items || [])[0] || {};
@@ -331,6 +351,13 @@ async function main() {
     warehouseCreated: whCreated.status === 201 && whCreated.body.code === 'SMOKE-WH',
     warehouseDisableRejected: whDisableMain.status === 409,
     skuCostCleared: skuCostCleared.body.cost === null,
+    approvalRuleSeeded: Array.isArray(approvalRules.body) && approvalRules.body.length === 1 && approvalRule.thresholdAmount && approvalRule.thresholdAmount.amount === 1000000 && approvalRule.enabled === true,
+    approvalRulePatched: approvalPatched.body && approvalPatched.body.thresholdAmount && approvalPatched.body.thresholdAmount.amount === 1000000,
+    excCreated: excCreated.status === 201 && excCreated.body.diffAmount && excCreated.body.diffAmount.amount === 12000 && excCreated.body.status === 'requested',
+    excFlow: excApproved.body.status === 'approved' && excReceived.body.status === 'received' && excDone.body.status === 'exchanged',
+    excOverRejected: excOver.status === 409,
+    importCustomers: importCustomers.body.created === 1 && (importCustomers.body.skipped || []).length === 1,
+    importStocktakes: importStocktakes.body.created === 1 && (importStocktakes.body.errors || []).length === 1,
   };
 
   console.log(JSON.stringify({ checks, sample: { orderTotal: created.body.total, reservedQty: lotAfter.reservedQty } }, null, 2));

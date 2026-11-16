@@ -22,6 +22,8 @@ const prisma = new PrismaClient();
 /** 子表在前、父表在后，违反外键会直接报错停住（不做 truncate 级联） */
 const TABLES = [
   'auditEvent',
+  'exchange',
+  'approvalRule',
   'stockMovement',
   'paymentRecord',
   'orderLine',

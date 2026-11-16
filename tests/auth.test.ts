@@ -99,6 +99,22 @@ describe("AuthGuard", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 })
   })
 
+  it("第 8 批：sales 能读审批规则、但禁写（否则自己改门槛就绕过了规则）", async () => {
+    const { iam, guard } = makeGuard()
+    const { accessToken } = await iam.login({ username: "sales", password: "demo1234" })
+    const bearer = `Bearer ${accessToken}`
+    await expect(
+      guard.canActivate(fakeContext(guardedHandler, req("GET", "/api/approval-rules", bearer))),
+    ).resolves.toBe(true)
+    await expect(
+      guard.canActivate(fakeContext(guardedHandler, req("PATCH", "/api/approval-rules/00000000-0000-4000-8000-000000000701", bearer))),
+    ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 })
+    const { accessToken: adminToken } = await iam.login({ username: "admin", password: "demo1234" })
+    await expect(
+      guard.canActivate(fakeContext(guardedHandler, req("PATCH", "/api/approval-rules/00000000-0000-4000-8000-000000000701", `Bearer ${adminToken}`))),
+    ).resolves.toBe(true)
+  })
+
   it("只读角色仅 GET，写操作报 403", async () => {
     const { iam, guard } = makeGuard()
     const { accessToken } = await iam.login({ username: "viewer", password: "demo1234" })

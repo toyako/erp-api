@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaClient } from '@prisma/client';
 import { IamService } from './application/iam.service';
+import { ApprovalRuleService } from './application/approval-rule.service';
+import { ExchangeService } from './application/exchange.service';
+import { ImportService } from './application/import.service';
 import { CategoryService } from './application/category.service';
 import { CustomerService } from './application/customer.service';
 import { DashboardService } from './application/dashboard.service';
@@ -47,6 +50,9 @@ function createDatabase(): DatabasePort {
     InvoiceService,
     TransferService,
     StocktakeService,
+    ApprovalRuleService,
+    ExchangeService,
+    ImportService,
     DashboardService,
     AuditInterceptor,
     AuthGuard,

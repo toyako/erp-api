@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type {
+  ApprovalRule,
   AuditEvent,
   AuditEventListQuery,
   BalanceTransaction,
@@ -9,6 +10,7 @@ import type {
   Customer,
   CustomerFollowup,
   CustomerFollowupListQuery,
+  Exchange,
   GoodsReceipt,
   GoodsReceiptListQuery,
   InventoryLot,
@@ -53,10 +55,12 @@ interface State {
   followups: CustomerFollowup[];
   balanceTxs: BalanceTransaction[];
   rmas: Rma[];
+  exchanges: Exchange[];
   shipments: Shipment[];
   invoices: Invoice[];
   transfers: Transfer[];
   stocktakes: Stocktake[];
+  approvalRules: ApprovalRule[];
   auditEvents: AuditEvent[];
 }
 
@@ -118,6 +122,10 @@ function seed(): State {
     { id: '00000000-0000-4000-8000-000000000501', tenantId: TENANT_ID, level: 'regular', minSpent: { amount: 0, currency: 'CNY' } },
     { id: '00000000-0000-4000-8000-000000000502', tenantId: TENANT_ID, level: 'vip', minSpent: { amount: 100000, currency: 'CNY' } },
   ];
+  /** 演示审批规则：与 Prisma 迁移种子同口径（采购单 ≥ ¥10,000 需管理员审批） */
+  const approvalRules: ApprovalRule[] = [
+    { id: '00000000-0000-4000-8000-000000000701', tenantId: TENANT_ID, docType: 'purchase_order', thresholdAmount: { amount: 1000000, currency: 'CNY' }, approverRole: 'admin', enabled: true, createdAt: '2026-11-16T00:00:00.000Z', updatedAt: '2026-11-16T00:00:00.000Z' },
+  ];
   return {
     credentials: { admin: 'demo1234', sales: 'demo1234', viewer: 'demo1234' },
     principals,
@@ -137,10 +145,12 @@ function seed(): State {
     followups: [],
     balanceTxs: [],
     rmas,
+    exchanges: [],
     shipments: [],
     invoices: [],
     transfers,
     stocktakes,
+    approvalRules,
     auditEvents: [],
   };
 }
@@ -315,6 +325,11 @@ export class InMemoryDatabase extends DatabasePort {
     return found ? { ...found } : null;
   }
 
+  async findLotByBatchCode(batchCode: string) {
+    const found = this.state.lots.find((l) => l.batchCode === batchCode);
+    return found ? { ...found } : null;
+  }
+
   async saveLot(lot: InventoryLot) {
     const i = this.state.lots.findIndex((l) => l.id === lot.id);
     const copy = { ...lot };
@@ -467,6 +482,39 @@ export class InMemoryDatabase extends DatabasePort {
     const copy = { ...rma };
     if (i >= 0) this.state.rmas[i] = copy;
     else this.state.rmas.push(copy);
+  }
+
+  async listApprovalRules() {
+    return [...this.state.approvalRules].map((r) => ({ ...r, thresholdAmount: { ...r.thresholdAmount } }));
+  }
+
+  async findApprovalRule(id: string) {
+    const found = this.state.approvalRules.find((r) => r.id === id);
+    return found ? { ...found, thresholdAmount: { ...found.thresholdAmount } } : null;
+  }
+
+  async saveApprovalRule(rule: ApprovalRule) {
+    const i = this.state.approvalRules.findIndex((r) => r.id === rule.id);
+    const copy = { ...rule, thresholdAmount: { ...rule.thresholdAmount } };
+    if (i >= 0) this.state.approvalRules[i] = copy;
+    else this.state.approvalRules.push(copy);
+  }
+
+  async listExchanges(params: PageQueryParams) {
+    const sorted = [...this.state.exchanges].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return pageOf(sorted.map((e) => ({ ...e, diffAmount: e.diffAmount ? { ...e.diffAmount } : null })), params);
+  }
+
+  async findExchange(id: string) {
+    const found = this.state.exchanges.find((e) => e.id === id);
+    return found ? { ...found, diffAmount: found.diffAmount ? { ...found.diffAmount } : null } : null;
+  }
+
+  async saveExchange(exchange: Exchange) {
+    const i = this.state.exchanges.findIndex((e) => e.id === exchange.id);
+    const copy = { ...exchange, diffAmount: exchange.diffAmount ? { ...exchange.diffAmount } : null };
+    if (i >= 0) this.state.exchanges[i] = copy;
+    else this.state.exchanges.push(copy);
   }
 
   async listShipments(params: PageQueryParams) {

@@ -82,10 +82,22 @@ export class PurchaseService {
     return order;
   }
 
-  /** 审核通过：只允许 submitted → approved */
-  async approvePurchaseOrder(id: string): Promise<PurchaseOrder> {
+  /**
+   * 审核通过：只允许 submitted → approved。
+   * 第 8 批审批流：有启用的采购单门槛规则、订单总额 ≥ 门槛、审批人无 admin 角色 → 403。
+   */
+  async approvePurchaseOrder(id: string, roles: string[] = []): Promise<PurchaseOrder> {
     const order = await this.requirePurchaseOrder(id);
     assertPurchaseTransition(order.status, 'approved');
+    const rules = await this.db.listApprovalRules();
+    const rule = rules.find((r) => r.docType === 'purchase_order' && r.enabled);
+    if (rule && order.total.amount >= rule.thresholdAmount.amount && !roles.includes('admin')) {
+      throw new DomainError(
+        'FORBIDDEN',
+        `订单金额 ¥${(order.total.amount / 100).toFixed(2)} ≥ ¥${(rule.thresholdAmount.amount / 100).toFixed(2)}，需管理员审批`,
+        403,
+      );
+    }
     order.status = 'approved';
     await this.db.savePurchaseOrder(order);
     return order;

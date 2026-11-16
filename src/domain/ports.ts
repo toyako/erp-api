@@ -1,4 +1,5 @@
 import type {
+  ApprovalRule,
   AuditEvent,
   AuditEventListQuery,
   BalanceTransaction,
@@ -8,6 +9,7 @@ import type {
   Customer,
   CustomerFollowup,
   CustomerFollowupListQuery,
+  Exchange,
   GoodsReceipt,
   GoodsReceiptListQuery,
   InventoryLot,
@@ -136,6 +138,16 @@ export abstract class DatabasePort {
   abstract listStocktakes(params: PageQueryParams): Promise<Page<Stocktake>>;
   abstract findStocktake(id: string): Promise<Stocktake | null>;
   abstract saveStocktake(stocktake: Stocktake): Promise<void>;
+  /** 审批规则：v1 只有采购单门槛一条 */
+  abstract listApprovalRules(): Promise<ApprovalRule[]>;
+  abstract findApprovalRule(id: string): Promise<ApprovalRule | null>;
+  abstract saveApprovalRule(rule: ApprovalRule): Promise<void>;
+  /** 换货单 */
+  abstract listExchanges(params: PageQueryParams): Promise<Page<Exchange>>;
+  abstract findExchange(id: string): Promise<Exchange | null>;
+  abstract saveExchange(exchange: Exchange): Promise<void>;
+  /** 盘点批量导入：按批次号查批次 */
+  abstract findLotByBatchCode(batchCode: string): Promise<InventoryLot | null>;
   /** 审计日志：拦截器横切写入；列表按 createdAt 倒序，entity 精确过滤、action 子串过滤 */
   abstract listAuditEvents(params: AuditEventListQuery): Promise<Page<AuditEvent>>;
   abstract findAuditEvent(id: string): Promise<AuditEvent | null>;

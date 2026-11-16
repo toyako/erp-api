@@ -188,6 +188,13 @@ async function main() {
     });
   }
 
+  // 审批规则：采购单 ≥ ¥10,000 需管理员审批（与迁移种子同口径；update 为空，复跑不覆盖管理员改过的门槛）
+  await prisma.approvalRule.upsert({
+    where: { id: '00000000-0000-4000-8000-000000000701' },
+    update: {},
+    create: { id: '00000000-0000-4000-8000-000000000701', tenantId: TENANT, docType: 'purchase_order', thresholdAmount: 1000000, thresholdCurrency: 'CNY', approverRole: 'admin', enabled: true },
+  });
+
   // 两单关联客户：订单是运行期经接口建的（seed 从不建单），库里有才挂上去，没有就是 no-op
   await prisma.salesOrder.updateMany({
     where: { orderNo: 'ERP-MWHLQJA6' },
@@ -261,7 +268,7 @@ async function main() {
     });
   }
 
-  console.log('seed done: 1 tenant / 3 principals / 1 SPU / 2 SKU / 2 lots / 2 suppliers / 3 customers / 2 level rules');
+  console.log('seed done: 1 tenant / 3 principals / 1 SPU / 2 SKU / 2 lots / 2 suppliers / 3 customers / 2 level rules / 1 approval rule');
 }
 
 main()

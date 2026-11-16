@@ -4,6 +4,8 @@ import { DEFAULT_LOCATION } from '@erp/contracts';
 import { multiplyMoney } from '../domain/money';
 import type {
   CreateRmaRequest,
+  Exchange,
+  ExchangeStatus,
   PageQueryParams,
   Rma,
   RmaStatus,
@@ -15,6 +17,9 @@ import { TENANT_ID } from './sales.service';
 
 /** 占可退余量的状态：已审核、已收货、已退款；requested / rejected / cancelled 不占余量 */
 const COUNTED_STATUSES: readonly RmaStatus[] = ['approved', 'received', 'refunded'];
+
+/** 换货单占可退余量的状态（与 ExchangeService 同款；换货与退货共享同一可退余量） */
+const EXCHANGE_COUNTED_STATUSES: readonly ExchangeStatus[] = ['approved', 'received', 'exchanged'];
 
 @Injectable()
 export class RmaService {
@@ -48,7 +53,11 @@ export class RmaService {
       const used = (await this.collectAllRmas(tx))
         .filter((r) => r.orderId === order.id && r.skuId === input.skuId && COUNTED_STATUSES.includes(r.status))
         .reduce((n, r) => n + r.quantity, 0);
-      const remaining = line.quantity - used;
+      // 换货与退货共享同一可退余量：已占的换货退货量也要扣掉（第 8 批）
+      const usedByExchanges = (await this.collectAllExchanges(tx))
+        .filter((e) => e.orderId === order.id && e.returnSkuId === input.skuId && EXCHANGE_COUNTED_STATUSES.includes(e.status))
+        .reduce((n, e) => n + e.returnQty, 0);
+      const remaining = line.quantity - used - usedByExchanges;
       if (input.quantity > remaining) {
         throw new DomainError('CONFLICT', `可退余量不足（剩余 ${remaining} 件）`, 409);
       }
@@ -148,6 +157,19 @@ export class RmaService {
     let page = 1;
     for (;;) {
       const result = await db.listRmas({ page, pageSize: 200 });
+      all.push(...result.items);
+      if (all.length >= result.total || result.items.length === 0) break;
+      page += 1;
+    }
+    return all;
+  }
+
+  /** 余量校验用：分页循环拉全量换货单（第 8 批；换货与退货共享同一可退余量） */
+  private async collectAllExchanges(db: DatabasePort): Promise<Exchange[]> {
+    const all: Exchange[] = [];
+    let page = 1;
+    for (;;) {
+      const result: Page<Exchange> = await db.listExchanges({ page, pageSize: 200 });
       all.push(...result.items);
       if (all.length >= result.total || result.items.length === 0) break;
       page += 1;

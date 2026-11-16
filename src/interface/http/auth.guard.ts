@@ -12,7 +12,8 @@ import { IamService } from '../../application/iam.service';
  *   IamService.currentUser()（验签 + 查库，主体被删也进不来），主体挂 req.user。
  * - 角色矩阵（principal.roles 数组）：
  *   - 含 admin → 全放行；
- *   - 含 sales（无 admin）→ 禁 /iam/*（403），其余放行；
+ *   - 含 sales（无 admin）→ 禁 /iam/*（403），禁写 /approval-rules（403，
+ *     否则 sales 自己改审批门槛就绕过了规则），其余放行；
  *   - 其余（readonly 等）→ 仅 GET，写操作 403。
  * - 统一抛 DomainError，走现有 DomainErrorFilter。
  */
@@ -62,6 +63,9 @@ export class AuthGuard implements CanActivate {
     if (roles.includes('sales')) {
       if (path === '/iam' || path.startsWith('/iam/')) {
         throw new DomainError('FORBIDDEN', '销售角色不可管理用户', 403);
+      }
+      if (path.startsWith('/approval-rules') && String(req.method ?? '').toUpperCase() !== 'GET') {
+        throw new DomainError('FORBIDDEN', '销售角色不可改审批规则', 403);
       }
       return true;
     }

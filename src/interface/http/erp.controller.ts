@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   AuditEventListQuerySchema,
   CreateCategoryRequestSchema,
   CreateCustomerFollowupRequestSchema,
   CreateCustomerRequestSchema,
+  CreateExchangeRequestSchema,
   CreateInvoiceRequestSchema,
   CreateOrderRequestSchema,
   CreatePriceRequestSchema,
@@ -26,12 +28,14 @@ import {
   ReceivePurchaseOrderRequestSchema,
   RejectPurchaseOrderRequestSchema,
   ResolvePriceQuerySchema,
+  RejectExchangeRequestSchema,
   RejectRmaRequestSchema,
   RejectTransferRequestSchema,
   ReportQuerySchema,
   ShipShipmentRequestSchema,
   TodoListQuerySchema,
   TopupRequestSchema,
+  UpdateApprovalRuleRequestSchema,
   UpdateCategoryRequestSchema,
   UpdateCustomerFollowupRequestSchema,
   UpdateCustomerRequestSchema,
@@ -46,6 +50,7 @@ import {
   type CreateCategoryRequest,
   type CreateCustomerFollowupRequest,
   type CreateCustomerRequest,
+  type CreateExchangeRequest,
   type CreateInvoiceRequest,
   type CreateOrderRequest,
   type CreatePriceRequest,
@@ -67,6 +72,7 @@ import {
   type ReceivePurchaseOrderRequest,
   type RejectPurchaseOrderRequest,
   type ResolvePriceQuery,
+  type RejectExchangeRequest,
   type RejectRmaRequest,
   type RejectTransferRequest,
   type ReportQuery,
@@ -75,6 +81,7 @@ import {
   type Supplier,
   type TodoListQuery,
   type TopupRequest,
+  type UpdateApprovalRuleRequest,
   type UpdateCategoryRequest,
   type UpdateCustomerFollowupRequest,
   type UpdateCustomerRequest,
@@ -87,9 +94,11 @@ import {
   type UpdateSupplierRequest,
 } from '@erp/contracts';
 import { IamService } from '../../application/iam.service';
+import { ApprovalRuleService } from '../../application/approval-rule.service';
 import { CategoryService } from '../../application/category.service';
 import { CustomerService } from '../../application/customer.service';
 import { DashboardService } from '../../application/dashboard.service';
+import { ExchangeService } from '../../application/exchange.service';
 import { PriceTierService } from '../../application/price-tier.service';
 import { ProductService } from '../../application/product.service';
 import { PurchaseService } from '../../application/purchase.service';
@@ -97,6 +106,7 @@ import { RmaService } from '../../application/rma.service';
 import { SalesService, TENANT_ID } from '../../application/sales.service';
 import { ShipmentService } from '../../application/shipment.service';
 import { InvoiceService } from '../../application/invoice.service';
+import { ImportService } from '../../application/import.service';
 import { StocktakeService } from '../../application/stocktake.service';
 import { TransferService } from '../../application/transfer.service';
 import { WarehouseService } from '../../application/warehouse.service';
@@ -122,6 +132,9 @@ export class ErpController {
     private readonly invoice: InvoiceService,
     private readonly transfer: TransferService,
     private readonly stocktake: StocktakeService,
+    private readonly approvalRule: ApprovalRuleService,
+    private readonly exchange: ExchangeService,
+    private readonly importer: ImportService,
     private readonly dashboard: DashboardService,
     private readonly db: DatabasePort,
   ) {}
@@ -354,8 +367,11 @@ export class ErpController {
   }
 
   @Post('purchase/orders/:id/approve')
-  approvePurchaseOrder(@Param('id') id: string) {
-    return this.purchase.approvePurchaseOrder(id);
+  approvePurchaseOrder(
+    @Param('id') id: string,
+    @Req() req: { user?: { roles?: string[] } },
+  ) {
+    return this.purchase.approvePurchaseOrder(id, req.user?.roles ?? []);
   }
 
   @Post('purchase/orders/:id/reject')
@@ -668,6 +684,87 @@ export class ErpController {
   @Post('rmas/:id/cancel')
   cancelRma(@Param('id') id: string) {
     return this.rma.cancelRma(id);
+  }
+
+  /** 审批流配置（第 8 批）：v1 只有采购单门槛一条规则 */
+  @Get('approval-rules')
+  async approvalRules() {
+    return this.approvalRule.listApprovalRules();
+  }
+
+  @Patch('approval-rules/:id')
+  updateApprovalRule(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateApprovalRuleRequestSchema)) body: UpdateApprovalRuleRequest,
+  ) {
+    return this.approvalRule.updateApprovalRule(id, body);
+  }
+
+  /** 换货单（第 8 批）：退一个 SKU、换入另一个 SKU */
+  @Get('sales/exchanges')
+  async exchanges(
+    @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,
+  ) {
+    return this.exchange.listExchanges(query);
+  }
+
+  @Get('sales/exchanges/:id')
+  async getExchange(@Param('id') id: string) {
+    return this.exchange.findExchange(id);
+  }
+
+  @Post('sales/exchanges')
+  createExchange(
+    @Body(new ZodValidationPipe(CreateExchangeRequestSchema)) body: CreateExchangeRequest,
+  ) {
+    return this.exchange.createExchange(body);
+  }
+
+  @Post('sales/exchanges/:id/approve')
+  approveExchange(@Param('id') id: string) {
+    return this.exchange.approveExchange(id);
+  }
+
+  @Post('sales/exchanges/:id/reject')
+  rejectExchange(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(RejectExchangeRequestSchema)) body: RejectExchangeRequest,
+  ) {
+    return this.exchange.rejectExchange(id, body.reason);
+  }
+
+  @Post('sales/exchanges/:id/receive')
+  receiveExchange(@Param('id') id: string) {
+    return this.exchange.receiveExchange(id);
+  }
+
+  @Post('sales/exchanges/:id/exchange')
+  completeExchange(@Param('id') id: string) {
+    return this.exchange.completeExchange(id);
+  }
+
+  @Post('sales/exchanges/:id/cancel')
+  cancelExchange(@Param('id') id: string) {
+    return this.exchange.cancelExchange(id);
+  }
+
+  /**
+   * CSV 导入（第 8 批）：multipart 文件上传（FileInterceptor，multer 是
+   * @nestjs/platform-express 的自带依赖）。无文件 400；单行坏不影响整批，
+   * 汇总在返回体里（created / skipped / errors）。
+   */
+  @Post('import/customers')
+  @UseInterceptors(FileInterceptor('file'))
+  async importCustomers(@UploadedFile() file?: { buffer: Buffer }) {
+    if (!file) throw new DomainError('INVALID_STATE', '请上传 CSV 文件', 400);
+    return this.importer.importCustomers(file.buffer);
+  }
+
+  @Post('import/stocktake')
+  @UseInterceptors(FileInterceptor('file'))
+  async importStocktakes(@UploadedFile() file?: { buffer: Buffer }) {
+    if (!file) throw new DomainError('INVALID_STATE', '请上传 CSV 文件', 400);
+    return this.importer.importStocktakes(file.buffer);
   }
 
   @Get('shipments')

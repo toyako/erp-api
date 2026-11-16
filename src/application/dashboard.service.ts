@@ -83,7 +83,7 @@ export class DashboardService {
   }
 
   private async loadAll() {
-    const [orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices, followups, customers] = await Promise.all([
+    const [orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices, followups, customers, exchanges] = await Promise.all([
       this.collectAll((p) => this.db.listOrders(p)),
       this.collectAll((p) => this.db.listLots(p)),
       this.collectAll((p) => this.db.listSkus(p)),
@@ -96,8 +96,9 @@ export class DashboardService {
       this.collectAll((p) => this.db.listInvoices(p)),
       this.collectAll((p) => this.db.listFollowups(p)),
       this.collectAll((p) => this.db.listCustomers(p)),
+      this.collectAll((p) => this.db.listExchanges(p)),
     ]);
-    return { orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices, followups, customers };
+    return { orders, lots, skus, purchaseOrders, suppliers, rmas, transfers, stocktakes, shipments, invoices, followups, customers, exchanges };
   }
 
   async getOverview(): Promise<OverviewSummary> {
@@ -364,7 +365,7 @@ export class DashboardService {
 
   /** 待办派生：订单按状态一条、退货待审核一条、调拨按状态三条（待提交/待审核/待完成）、盘点待确认一条、采购单按状态两条（待审核/待入库）、发货单按状态三条（待拣货/待打包/待发货）、发票待开具一条、跟进到期一条、可用量 < 20 的批次一条预警；先过滤再分页 */
   async listTodos(query: TodoListQuery): Promise<Page<TodoItem>> {
-    const { orders, lots, rmas, transfers, stocktakes, purchaseOrders, shipments, invoices, followups, customers } = await this.loadAll();
+    const { orders, lots, rmas, transfers, stocktakes, purchaseOrders, shipments, invoices, followups, customers, exchanges } = await this.loadAll();
     const customerById = new Map(customers.map((c) => [c.id, c]));
     const items: TodoItem[] = [];
     for (const o of orders) {
@@ -389,6 +390,15 @@ export class DashboardService {
     for (const r of rmas) {
       if (r.status === 'requested') {
         items.push({ id: `rma-${r.id}`, type: 'rma', typeLabel: '退货', cls: 'orange', title: '退货待审核', refNo: r.rmaNo, actor: '系统', time: r.createdAt, done: false, action: '去审核', to: '/erp/sales/rma' });
+      }
+    }
+    for (const e of exchanges) {
+      if (e.status === 'requested') {
+        items.push({ id: `exc-${e.id}`, type: 'exchange', typeLabel: '换货', cls: 'orange', title: '换货待审核', refNo: e.exchangeNo, actor: '系统', time: e.createdAt, done: false, action: '去审核', to: '/erp/sales/exchanges' });
+      } else if (e.status === 'approved') {
+        items.push({ id: `exc-${e.id}`, type: 'exchange', typeLabel: '换货', cls: 'blue', title: '换货待收货', refNo: e.exchangeNo, actor: '系统', time: e.createdAt, done: false, action: '去收货', to: '/erp/sales/exchanges' });
+      } else if (e.status === 'received') {
+        items.push({ id: `exc-${e.id}`, type: 'exchange', typeLabel: '换货', cls: 'blue', title: '换货待发货', refNo: e.exchangeNo, actor: '系统', time: e.createdAt, done: false, action: '去发货', to: '/erp/sales/exchanges' });
       }
     }
     for (const t of transfers) {
