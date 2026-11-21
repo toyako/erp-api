@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DashboardService } from "../src/application/dashboard.service"
 import { PurchaseService } from "../src/application/purchase.service"
 import { SalesService, TENANT_ID } from "../src/application/sales.service"
@@ -271,5 +271,67 @@ describe("DashboardService", () => {
     expect(adj[0]).toMatchObject({ batch: "BATCH-002", delta: -2, refNo: s.stocktakeNo })
     expect((await dashboard.listMovements({ page: 1, pageSize: 20, type: "transfer" })).total).toBe(2)
     expect((await dashboard.listMovements({ page: 1, pageSize: 20, type: "adjust" })).total).toBe(1)
+  })
+})
+
+describe("DashboardService 租户时区（Asia/Shanghai）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("北京时间 11-21 02:00 的单算 11-21，不算 11-20（UTC 下是 11-20 18:00）", async () => {
+    vi.setSystemTime(new Date("2026-11-21T02:00:00+08:00"))
+    const { sales, db, dashboard } = makeDashboard()
+    const sku = await firstSku(db)
+    const order = await sales.createOrder({ lines: [{ skuId: sku.id, quantity: 1 }] })
+
+    const o = await dashboard.getOverview()
+    expect(o.trend7[6]?.date).toBe("2026-11-21")
+    expect(o.trend7[6]?.amount).toBe(order.total.amount)
+    expect(o.trend7[5]?.date).toBe("2026-11-20")
+    expect(o.trend7[5]?.amount).toBe(0)
+    expect(o.trend30[29]?.date).toBe("2026-11-21")
+    expect(o.trend30[29]?.amount).toBe(order.total.amount)
+  })
+
+  it("07:59 与 08:00 边界：07:59（UTC 11-20 23:59）算 11-21，08:00（UTC 11-21 00:00）也算 11-21", async () => {
+    vi.setSystemTime(new Date("2026-11-21T07:59:00+08:00"))
+    const { sales, db, dashboard } = makeDashboard()
+    const sku = await firstSku(db)
+    const before = await sales.createOrder({ lines: [{ skuId: sku.id, quantity: 1 }] })
+    vi.setSystemTime(new Date("2026-11-21T08:00:00+08:00"))
+    const at = await sales.createOrder({ lines: [{ skuId: sku.id, quantity: 1 }] })
+
+    const o = await dashboard.getOverview()
+    expect(o.trend7[6]?.date).toBe("2026-11-21")
+    expect(o.trend7[6]?.amount).toBe(before.total.amount + at.total.amount)
+    expect(o.trend7[5]?.amount).toBe(0)
+  })
+
+  it("报表 7d：02:00 的单落在最后一桶", async () => {
+    vi.setSystemTime(new Date("2026-11-21T02:00:00+08:00"))
+    const { sales, db, dashboard } = makeDashboard()
+    const sku = await firstSku(db)
+    const order = await sales.createOrder({ lines: [{ skuId: sku.id, quantity: 1 }] })
+
+    const r = await dashboard.getReport("7d")
+    expect(r.buckets.reduce((n, b) => n + b.amount, 0)).toBe(order.total.amount)
+    expect(r.buckets[3]?.amount).toBe(order.total.amount)
+  })
+
+  it("财务月汇总：12-01 02:00 已付款的单算 12 月（UTC 下是 11-30）", async () => {
+    vi.setSystemTime(new Date("2026-12-01T02:00:00+08:00"))
+    const { sales, db, dashboard } = makeDashboard()
+    const sku = await firstSku(db)
+    const order = await sales.createOrder({ lines: [{ skuId: sku.id, quantity: 1 }] })
+    await sales.confirmOrder(order.id)
+    await sales.payOrder(order.id)
+
+    const f = await dashboard.getFinanceSummary()
+    expect(f.receivedThisMonth).toBe(order.total.amount)
   })
 })

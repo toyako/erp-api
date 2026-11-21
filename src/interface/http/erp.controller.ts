@@ -767,6 +767,20 @@ export class ErpController {
     return this.importer.importStocktakes(file.buffer);
   }
 
+  @Post('import/products')
+  @UseInterceptors(FileInterceptor('file'))
+  async importProducts(@UploadedFile() file?: { buffer: Buffer }) {
+    if (!file) throw new DomainError('INVALID_STATE', '请上传 CSV 文件', 400);
+    return this.importer.importProducts(file.buffer);
+  }
+
+  @Post('import/suppliers')
+  @UseInterceptors(FileInterceptor('file'))
+  async importSuppliers(@UploadedFile() file?: { buffer: Buffer }) {
+    if (!file) throw new DomainError('INVALID_STATE', '请上传 CSV 文件', 400);
+    return this.importer.importSuppliers(file.buffer);
+  }
+
   @Get('shipments')
   async shipments(
     @Query(new ZodValidationPipe(PageQueryParamsSchema)) query: PageQueryParams,

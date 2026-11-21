@@ -16,37 +16,19 @@ import type {
   TodoListQuery,
 } from '@erp/contracts';
 import { DatabasePort, type Page } from '../domain/ports';
+import { addDays, dateInTimezone, dayStartMsInTimezone, todayInTimezone } from '../domain/timezone';
 
 /**
  * 仪表盘汇总服务：聚合页不再从列表接口拉全量后在前端聚合。
  * 聚合方法：用 Port 已有的分页 list 方法以 pageSize 200 循环拉取，直到
  * collected >= total 再聚合——永远不只取第 1 页；聚合在内存里做。
  * SQL 层 groupBy 是后续步骤，分页拉取保证双适配器行为一致。
- * 日期一律按服务端 UTC 日计算（与前端本地时区口径不同，见 manifest）。
+ * 日期一律按租户时区（Asia/Shanghai）自然日计算，见 domain/timezone.ts；
+ * 单据 createdAt 仍存 UTC ISO，只改汇总时“属于哪一天”的口径。
  */
 
 const DAY_MS = 86400000;
 const WARNING_QTY = 20;
-
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-/** 'YYYY-MM-DD'（UTC）加减天数 */
-function addDays(date: string, days: number): string {
-  const y = Number(date.slice(0, 4));
-  const m = Number(date.slice(5, 7));
-  const d = Number(date.slice(8, 10));
-  return new Date(Date.UTC(y, m - 1, d) + days * DAY_MS).toISOString().slice(0, 10);
-}
-
-/** 'YYYY-MM-DD' 当天 00:00 UTC 的毫秒时间戳 */
-function dayStartMs(date: string): number {
-  const y = Number(date.slice(0, 4));
-  const m = Number(date.slice(5, 7));
-  const d = Number(date.slice(8, 10));
-  return Date.UTC(y, m - 1, d);
-}
 
 function monthDayLabel(date: string): string {
   const [, m, d] = date.split('-').map(Number);
@@ -116,11 +98,11 @@ export class DashboardService {
       salesAmount += o.total.amount;
     }
 
-    const today = todayUtc();
+    const today = todayInTimezone();
     const trend7 = Array.from({ length: 7 }, (_, i) => {
       const date = addDays(today, i - 6);
       const amount = orders
-        .filter((o) => o.status !== 'cancelled' && o.createdAt.slice(0, 10) === date)
+        .filter((o) => o.status !== 'cancelled' && dateInTimezone(o.createdAt) === date)
         .reduce((n, o) => n + o.total.amount, 0);
       return { date, amount };
     });
@@ -128,7 +110,7 @@ export class DashboardService {
     const trend30 = Array.from({ length: 30 }, (_, i) => {
       const date = addDays(today, i - 29);
       const amount = orders
-        .filter((o) => o.status !== 'cancelled' && o.createdAt.slice(0, 10) === date)
+        .filter((o) => o.status !== 'cancelled' && dateInTimezone(o.createdAt) === date)
         .reduce((n, o) => n + o.total.amount, 0);
       return { date, amount };
     });
@@ -181,10 +163,10 @@ export class DashboardService {
     const skuById = new Map(skus.map((s) => [s.id, s]));
 
     // month 取本月已过天数（今日是几号），与原前端 rangeDays 口径一致
-    const today = todayUtc();
+    const today = todayInTimezone();
     const days = range === '30d' ? 30 : range === 'month' ? Number(today.slice(8, 10)) : 7;
-    const startMs = dayStartMs(addDays(today, -(days - 1)));
-    const endMs = dayStartMs(today) + DAY_MS - 1;
+    const startMs = dayStartMsInTimezone(addDays(today, -(days - 1)));
+    const endMs = dayStartMsInTimezone(today) + DAY_MS - 1;
     const prevEndMs = startMs - 1;
     const prevStartMs = startMs - days * DAY_MS;
     const inRange = (iso: string, s: number, e: number) => {
@@ -316,10 +298,10 @@ export class DashboardService {
     const { purchaseOrders, suppliers } = await this.loadAll();
     const supplierById = new Map(suppliers.map((s) => [s.id, s]));
 
-    const today = todayUtc();
+    const today = todayInTimezone();
     const days = range === '30d' ? 30 : range === 'month' ? Number(today.slice(8, 10)) : 7;
-    const startMs = dayStartMs(addDays(today, -(days - 1)));
-    const endMs = dayStartMs(today) + DAY_MS - 1;
+    const startMs = dayStartMsInTimezone(addDays(today, -(days - 1)));
+    const endMs = dayStartMsInTimezone(today) + DAY_MS - 1;
     const inRange = (iso: string) => {
       const t = new Date(iso).getTime();
       return t >= startMs && t <= endMs;
@@ -456,7 +438,7 @@ export class DashboardService {
 
   async getFinanceSummary(): Promise<FinanceSummary> {
     const { orders, purchaseOrders } = await this.loadAll();
-    const ym = todayUtc().slice(0, 7);
+    const ym = todayInTimezone().slice(0, 7);
     return {
       receivable: orders
         .filter((o) => o.status === 'confirmed')
@@ -465,10 +447,10 @@ export class DashboardService {
         .filter((o) => o.status === 'draft' || o.status === 'submitted')
         .reduce((n, o) => n + o.total.amount, 0),
       receivedThisMonth: orders
-        .filter((o) => (o.status === 'paid' || o.status === 'fulfilled') && o.createdAt.slice(0, 7) === ym)
+        .filter((o) => (o.status === 'paid' || o.status === 'fulfilled') && dateInTimezone(o.createdAt).slice(0, 7) === ym)
         .reduce((n, o) => n + o.total.amount, 0),
       paidThisMonth: purchaseOrders
-        .filter((o) => o.status === 'received' && o.createdAt.slice(0, 7) === ym)
+        .filter((o) => o.status === 'received' && dateInTimezone(o.createdAt).slice(0, 7) === ym)
         .reduce((n, o) => n + o.total.amount, 0),
     };
   }
@@ -517,7 +499,7 @@ export class DashboardService {
       .slice(0, 5)
       .map((o) => ({
         text: `创建销售订单 ${o.orderNo}`,
-        meta: `系统 · ${o.createdAt.slice(0, 10)}`,
+        meta: `系统 · ${dateInTimezone(o.createdAt)}`,
         time: o.createdAt,
       }));
   }

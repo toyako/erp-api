@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { DashboardService } from "../src/application/dashboard.service"
 import { PurchaseService } from "../src/application/purchase.service"
 import { SalesService } from "../src/application/sales.service"
+import { todayInTimezone } from "../src/domain/timezone"
 import { InMemoryDatabase } from "../src/infrastructure/in-memory.database"
 import { MockPaymentGateway } from "../src/infrastructure/mock-payment.gateway"
 
@@ -49,7 +50,7 @@ describe("DashboardService report", () => {
     const overview = await dashboard.getOverview()
     expect(overview.trend30).toHaveLength(30)
     expect(overview.trend7).toHaveLength(7)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayInTimezone()
     expect(overview.trend30[29]?.date).toBe(today)
     expect(overview.trend30[0]?.date < overview.trend30[29]?.date).toBe(true)
     for (const t of overview.trend30) expect(t.amount).toBeGreaterThanOrEqual(0)
