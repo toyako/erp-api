@@ -61,7 +61,7 @@ export class PurchaseService {
       const order: PurchaseOrder = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        orderNo: nextDocNo('PO'),
+        orderNo: await nextDocNo('PO', (p) => tx.listPurchaseOrders(p), (o) => o.orderNo),
         supplierId: supplier.id,
         status: 'draft',
         lines,
@@ -192,7 +192,7 @@ export class PurchaseService {
       const receipt: GoodsReceipt = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        receiptNo: nextDocNo('GRN'),
+        receiptNo: await nextDocNo('GRN', (p) => tx.listReceipts(p), (r) => r.receiptNo),
         purchaseOrderId: order.id,
         orderNo: order.orderNo,
         lines: receiptLines,

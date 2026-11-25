@@ -41,7 +41,7 @@ export class TransferService {
     const transfer: Transfer = {
       id: randomUUID(),
       tenantId: TENANT_ID,
-      transferNo: nextDocNo('TRF'),
+      transferNo: await nextDocNo('TRF', (p) => this.db.listTransfers(p), (t) => t.transferNo),
       skuId: input.skuId,
       fromLocation: input.fromLocation,
       toLocation: input.toLocation,

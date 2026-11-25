@@ -34,7 +34,7 @@ export class StocktakeService {
     const stocktake: Stocktake = {
       id: randomUUID(),
       tenantId: TENANT_ID,
-      stocktakeNo: nextDocNo('STK'),
+      stocktakeNo: await nextDocNo('STK', (p) => this.db.listStocktakes(p), (s) => s.stocktakeNo),
       lotId: lot.id,
       skuId: lot.skuId,
       countedQty: input.countedQty,

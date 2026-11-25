@@ -46,7 +46,7 @@ export class ShipmentService {
       const shipment: Shipment = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        shipmentNo: nextDocNo('SHP'),
+        shipmentNo: await nextDocNo('SHP', (p) => tx.listShipments(p), (s) => s.shipmentNo),
         orderId: order.id,
         orderNo: order.orderNo,
         status: 'draft',

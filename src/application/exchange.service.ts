@@ -67,7 +67,7 @@ export class ExchangeService {
       const exchange: Exchange = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        exchangeNo: nextDocNo('EXC'),
+        exchangeNo: await nextDocNo('EXC', (p) => tx.listExchanges(p), (e) => e.exchangeNo),
         orderId: order.id,
         returnSkuId: input.returnSkuId,
         returnQty: input.returnQty,

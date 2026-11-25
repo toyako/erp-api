@@ -67,7 +67,7 @@ export class SalesService {
       const order: SalesOrder = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        orderNo: nextDocNo('ERP'),
+        orderNo: await nextDocNo('SO', (p) => tx.listOrders(p), (o) => o.orderNo),
         ...(customerId ? { customerId } : {}),
         status: 'draft',
         lines,

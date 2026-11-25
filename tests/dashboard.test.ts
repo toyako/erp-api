@@ -220,7 +220,7 @@ describe("DashboardService", () => {
     const logs = await dashboard.getRecentActivity()
 
     expect(logs).toHaveLength(5)
-    expect(logs.every((l) => l.text.startsWith("创建销售订单 ERP-"))).toBe(true)
+    expect(logs.every((l) => l.text.startsWith("创建销售订单 SO-"))).toBe(true)
     expect(logs.find((l) => l.text === `创建销售订单 ${fulfilled.orderNo}`)).toBeDefined()
   })
 

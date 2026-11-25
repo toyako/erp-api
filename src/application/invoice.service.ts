@@ -64,7 +64,7 @@ export class InvoiceService {
       const invoice: Invoice = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        invoiceNo: nextDocNo('INV'),
+        invoiceNo: await nextDocNo('INV', (p) => tx.listInvoices(p), (i) => i.invoiceNo),
         orderId: order.id,
         orderNo: order.orderNo,
         customerId: order.customerId ?? null,

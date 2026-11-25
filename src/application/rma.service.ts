@@ -64,7 +64,7 @@ export class RmaService {
       const rma: Rma = {
         id: randomUUID(),
         tenantId: TENANT_ID,
-        rmaNo: nextDocNo('RMA'),
+        rmaNo: await nextDocNo('RMA', (p) => tx.listRmas(p), (r) => r.rmaNo),
         orderId: order.id,
         skuId: input.skuId,
         quantity: input.quantity,
