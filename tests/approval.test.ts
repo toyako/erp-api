@@ -72,4 +72,39 @@ describe('第 8 批：审批流配置（采购单门槛）', () => {
   it('改不存在的规则 404', async () => {
     await expect(rules.updateApprovalRule(randomUUID(), { enabled: false })).rejects.toMatchObject({ status: 404 });
   });
+
+  it('0 条规则时新建首条成功：approverRole admin、租户与门槛正确', async () => {
+    // 用空规则视图的内存库模拟清空后的演示库（list 为空，save 仍写真实状态）
+    class EmptyRulesDb extends InMemoryDatabase {
+      override async listApprovalRules() {
+        return [];
+      }
+    }
+    const emptyDb = new EmptyRulesDb();
+    const emptyRules = new ApprovalRuleService(emptyDb);
+    const created = await emptyRules.createApprovalRule({
+      docType: 'purchase_order',
+      thresholdAmount: { amount: 500000, currency: 'CNY' },
+      enabled: true,
+    });
+    expect(created).toMatchObject({
+      docType: 'purchase_order',
+      thresholdAmount: { amount: 500000, currency: 'CNY' },
+      approverRole: 'admin',
+      enabled: true,
+      tenantId: '00000000-0000-4000-8000-000000000001',
+    });
+    expect(created.id).toBeTruthy();
+    expect(created.createdAt).toBeTruthy();
+    const found = await emptyDb.findApprovalRule(created.id);
+    expect(found?.docType).toBe('purchase_order');
+  });
+
+  it('同 docType 已有规则时新建报 409', async () => {
+    await expect(rules.createApprovalRule({
+      docType: 'purchase_order',
+      thresholdAmount: { amount: 500000, currency: 'CNY' },
+      enabled: true,
+    })).rejects.toMatchObject({ code: 'CONFLICT', status: 409 });
+  });
 });

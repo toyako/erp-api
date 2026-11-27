@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Req,
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   AuditEventListQuerySchema,
+  CreateApprovalRuleRequestSchema,
   CreateCategoryRequestSchema,
   CreateCustomerFollowupRequestSchema,
   CreateCustomerRequestSchema,
@@ -47,6 +48,7 @@ import {
   UpdateSkuRequestSchema,
   UpdateSupplierRequestSchema,
   type AuditEventListQuery,
+  type CreateApprovalRuleRequest,
   type CreateCategoryRequest,
   type CreateCustomerFollowupRequest,
   type CreateCustomerRequest,
@@ -698,6 +700,13 @@ export class ErpController {
     @Body(new ZodValidationPipe(UpdateApprovalRuleRequestSchema)) body: UpdateApprovalRuleRequest,
   ) {
     return this.approvalRule.updateApprovalRule(id, body);
+  }
+
+  @Post('approval-rules')
+  createApprovalRule(
+    @Body(new ZodValidationPipe(CreateApprovalRuleRequestSchema)) body: CreateApprovalRuleRequest,
+  ) {
+    return this.approvalRule.createApprovalRule(body);
   }
 
   /** 换货单（第 8 批）：退一个 SKU、换入另一个 SKU */
