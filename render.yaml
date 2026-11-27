@@ -7,7 +7,7 @@ services:
     # 1) 契约仓库并列 clone 到 ../erp-contracts（package.json 用 file:../erp-contracts）
     # 2) NODE_ENV=production 下 pnpm 会跳过 devDeps，而 prisma/typescript 都在 devDeps
     buildCommand: rm -rf ../erp-contracts && git clone --depth 1 https://github.com/toyako/erp-contracts.git ../erp-contracts && pnpm install --prod=false && pnpm exec prisma generate && pnpm build
-    startCommand: sh -c "pnpm exec prisma migrate deploy && DEMO_RESET_CONFIRMED=1 DEMO_RESET_MODE=empty npx tsx prisma/reset-demo.ts && node dist/main.js"
+    startCommand: sh -c "pnpm exec prisma migrate deploy && node dist/main.js"
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
